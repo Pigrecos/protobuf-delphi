@@ -15,19 +15,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this file. If not, see <https://www.gnu.org/licenses/>.
  *)
-
 unit Oz.Pb.Parser;
-
 interface
-
 uses
-  System.Classes, System.SysUtils, System.Character, System.IOUtils, System.Math,
+  System.Classes, System.SysUtils, System.Character, System.IOUtils, System.Math, System.Generics.Collections,
   Oz.Cocor.Utils, Oz.Cocor.Lib, Oz.Pb.Scanner, Oz.Pb.Options, Oz.Pb.Tab, Oz.Pb.Gen;
-
 type
-
 {$Region 'TpbParser'}
-
   TpbParser= class(TBaseParser)
   const
     ErrorMessages: array [1..8] of string = (
@@ -104,11 +98,8 @@ type
     procedure Parse; override;
     procedure ParseImport(const id: string; var obj: PObj);
   end;
-
 {$EndRegion}
-
 {$Region 'TCocoPartHelper'}
-
   TCocoPartHelper = class helper for TCocoPart
   private
     function GetParser: TpbParser;
@@ -125,13 +116,9 @@ type
     property errors: TErrors read GetErrors;
     property gen: TGen read GetGen;
  end;
-
 {$EndRegion}
-
 implementation
-
 {$Region 'TpbParser'}
-
 constructor TpbParser.Create(tab: TpbTable; scanner: TBaseScanner; listing: TStrings);
 begin
   inherited Create(scanner, listing);
@@ -139,17 +126,14 @@ begin
   options := GetOptions;
   gen := GetCodeGen(Self);
 end;
-
 destructor TpbParser.Destroy;
 begin
   inherited;
 end;
-
 procedure TpbParser.SemError(n: Integer);
 begin
   SemErr(ErrorMessages[n]);
 end;
-
 procedure TpbParser.Get;
 begin
   repeat
@@ -160,11 +144,9 @@ begin
       Inc(errDist);
       break;
     end;
-
     la := t;
   until False;
 end;
-
 procedure TpbParser._Pb;
 var
   obj: PObj;
@@ -173,13 +155,15 @@ begin
   _Module(tab.ModId, obj);
   tab.CloseScope;
 end;
-
 procedure TpbParser._Module(const id: string; var obj: PObj);
 begin
   tab.NewObj(obj, id, TMode.mModule);
   obj.aux := TModule.Create(obj, id, {weak=}False);
   tab.Module := TModule(obj.aux);
   tab.OpenScope;
+
+  tab.fwd_decl  := TDictionary<string,PObj>.Create;
+
   _Syntax(obj);
   while StartOf(1) do
   begin
@@ -221,8 +205,14 @@ begin
   // Before closing the current scope we remember the parsed entities.
   obj.dsc := tab.TopScope;
   tab.CloseScope;
+  // Forward Module Types
+  //
+  for var item in tab.fwd_decl do
+  begin
+      var TypeObj : PObj;
+      tab.Find(TypeObj,item.Key)
+  end;
 end;
-
 procedure TpbParser._Syntax(var obj: PObj);
 var
   m: TModule;
@@ -238,7 +228,6 @@ begin
     SemErr('invalid syntax version');
   Expect(14);
 end;
-
 procedure TpbParser._Import;
 var
   id: string;
@@ -263,7 +252,6 @@ begin
   tab.Import(id, weak);
   Expect(14);
 end;
-
 procedure TpbParser._Package;
 var
   id: string;
@@ -274,7 +262,6 @@ begin
   Tab.NewObj(obj, id, TMode.mPackage);
   Expect(14);
 end;
-
 procedure TpbParser._Option(const obj: PObj);
 var
   id: string;
@@ -287,7 +274,6 @@ begin
   obj.AddOption(id, Cv);
   Expect(14);
 end;
-
 procedure TpbParser._Message;
 var
   id: string;
@@ -336,7 +322,6 @@ begin
   if obj.typ.dsc = nil then
     obj.typ.dsc := tab.Guard;
 end;
-
 procedure TpbParser._Enum;
 var
   id: string;
@@ -367,13 +352,11 @@ begin
   obj.typ.dsc := tab.TopScope.next;
   tab.CloseScope;
 end;
-
 procedure TpbParser._MapDecl;
 var typ: PType;
 begin
   _MapType(typ);
 end;
-
 procedure TpbParser._Service;
 var
   id: string;
@@ -402,18 +385,15 @@ begin
   Expect(11);
   tab.CloseScope;
 end;
-
 procedure TpbParser._EmptyStatement;
 begin
   Expect(14);
 end;
-
 procedure TpbParser._Ident(var id: string);
 begin
   Expect(1);
   id := t.val;
 end;
-
 procedure TpbParser._Field(var typ: PType);
 begin
   if StartOf(3) then
@@ -431,7 +411,6 @@ begin
   else
     SynErr(63);
 end;
-
 procedure TpbParser._Reserved;
 var obj: PObj;
 begin
@@ -441,7 +420,7 @@ begin
     obj.aux := TMessageOptions.Create(obj);
   if (la.kind = 2) or (la.kind = 3) or (la.kind = 4) then
   begin
-    _Ranges(TMessageOptions(obj.aux).Reserved);
+      _Ranges(TMessageOptions(obj.aux).Reserved);
   end
   else if la.kind = 6 then
   begin
@@ -451,12 +430,10 @@ begin
     SynErr(64);
   Expect(14);
 end;
-
 procedure TpbParser._strLit;
 begin
   Expect(6);
 end;
-
 procedure TpbParser._FullIdent(var id: string);
 begin
   Expect(1);
@@ -468,7 +445,6 @@ begin
     id := id + '.' + t.val;
   end;
 end;
-
 procedure TpbParser._OptionName(var id: string);
 begin
   if la.kind = 1 then
@@ -492,7 +468,6 @@ begin
     id := id + '.' + t.val;
   end;
 end;
-
 procedure TpbParser._Constant(var c: TConst);
 var
   s: string;
@@ -545,7 +520,6 @@ begin
   else
     SynErr(67);
 end;
-
 procedure TpbParser._Rpc;
 var
   id: string;
@@ -602,7 +576,6 @@ begin
     SynErr(68);
   tab.CloseScope;
 end;
-
 procedure TpbParser._UserType(var typ: TQualIdent);
 begin
   typ := Default(TQualIdent);
@@ -623,7 +596,6 @@ begin
     typ.Name := t.val;
   end;
 end;
-
 procedure TpbParser._intLit(var n: Integer);
 begin
   if la.kind = 2 then
@@ -644,7 +616,6 @@ begin
   else
     SynErr(69);
 end;
-
 procedure TpbParser._floatLit(var n: Double);
 var code: Integer;
 begin
@@ -666,7 +637,6 @@ begin
   else
     SynErr(70);
 end;
-
 procedure TpbParser._boolLit;
 begin
   if la.kind = 29 then
@@ -680,7 +650,6 @@ begin
   else
     SynErr(71);
 end;
-
 procedure TpbParser._NormalField(var typ: PType);
 var
   rule: TFieldRule;
@@ -712,7 +681,6 @@ begin
   tab.CloseScope;
   Expect(14);
 end;
-
 procedure TpbParser._Map(var typ: PType);
 var
   ftyp: PType;
@@ -725,7 +693,6 @@ begin
   tab.CloseScope;
   Expect(14);
 end;
-
 procedure TpbParser._OneOf(var typ: PType);
 var
   ftyp: PType;
@@ -735,7 +702,6 @@ begin
   tab.Concatenate(typ.dsc);
   tab.CloseScope;
 end;
-
 procedure TpbParser._Type(var typ: PType);
 var ut: TQualIdent;
 begin
@@ -766,7 +732,6 @@ begin
   else
     SynErr(72);
 end;
-
 procedure TpbParser._FieldDecl(msg: PObj; ftyp: PType; rule: TFieldRule);
 var
   obj: PObj;
@@ -791,7 +756,6 @@ begin
     Expect(38);
   end;
 end;
-
 procedure TpbParser._MapType(var typ: PType);
 var
   id: string;
@@ -821,7 +785,6 @@ begin
   typ.dsc := tab.TopScope.next;
   tab.CloseScope;
 end;
-
 procedure TpbParser._OneOfType(msg: PObj; var typ: PType);
 var
   id: string;
@@ -855,12 +818,10 @@ begin
   end;
   Expect(11);
 end;
-
 procedure TpbParser._FieldNumber(var tag: Integer);
 begin
   _intLit(tag);
 end;
-
 procedure TpbParser._FieldOption(const obj: PObj);
 var
   id: string;
@@ -871,7 +832,6 @@ begin
   _Constant(Cv);
   obj.AddOption(id, Cv);
 end;
-
 procedure TpbParser._KeyType(var ft: PType);
 begin
   case la.kind of
@@ -939,14 +899,12 @@ begin
       SynErr(73);
   end;
 end;
-
 procedure TpbParser._OneOfField(typ: PType);
 var ftyp: PType;
 begin
   _Type(ftyp);
   _FieldDecl(typ.declaration, ftyp, TFieldRule.Singular);
 end;
-
 procedure TpbParser._Ranges(Reserved: TIntSet);
 var lo, hi: Integer;
 begin
@@ -959,7 +917,6 @@ begin
     Reserved.AddRange(lo, hi);
   end;
 end;
-
 procedure TpbParser._FieldNames(Fields: TStringList);
 begin
   _strLit;
@@ -971,7 +928,6 @@ begin
     Fields.Add(Unquote(t.val));
   end;
 end;
-
 procedure TpbParser._Range(var lo, hi: Integer);
 begin
   _intLit(lo);
@@ -991,7 +947,6 @@ begin
       SynErr(74);
   end;
 end;
-
 procedure TpbParser._EnumField;
 var
   id: string;
@@ -1020,7 +975,6 @@ begin
   end;
   Expect(14);
 end;
-
 procedure TpbParser._EnumValueOption(const obj: PObj);
 var
   id: string;
@@ -1031,7 +985,6 @@ begin
   _Constant(Cv);
   obj.AddOption(id, Cv);
 end;
-
 procedure TpbParser.Parse;
 begin
   la := scanner.NewToken;
@@ -1040,12 +993,10 @@ begin
   _Pb;
   Expect(0);
 end;
-
 procedure TpbParser.ParseImport(const id: string; var obj: PObj);
 begin
   _Module(id, obj);
 end;
-
 function TpbParser.Starts(s, kind: Integer): Boolean;
 const
   x = false;
@@ -1062,7 +1013,6 @@ const
 begin
   Result := sets[s, kind];
 end;
-
 function TpbParser.ErrorMsg(nr: Integer): string;
 const
   MaxErr = 74;
@@ -1148,42 +1098,31 @@ begin
   else
     Result := 'error ' + IntToStr(nr);
 end;
-
 {$EndRegion}
-
 {$Region 'TCocoPartHelper'}
-
 function TCocoPartHelper.GetParser: TpbParser;
 begin
   Result := FParser as TpbParser;
 end;
-
 function TCocoPartHelper.GetScanner: TpbScanner;
 begin
   Result := parser.scanner as TpbScanner;
 end;
-
 function TCocoPartHelper.GetOptions: TOptions;
 begin
   Result := parser.options;
 end;
-
 function TCocoPartHelper.GetTab: TpbTable;
 begin
   Result := parser.tab;
 end;
-
 function TCocoPartHelper.GetErrors: TErrors;
 begin
   Result := parser.errors;
 end;
-
 function TCocoPartHelper.GetGen: TGen;
 begin
   Result := parser.gen;
 end;
-
 {$EndRegion}
-
 end.
-

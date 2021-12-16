@@ -346,6 +346,8 @@ type
     FModId: string;
     // predefined types
     FEmbeddedTypes: array [TEmbeddedTypes] of PType;
+
+    Ffwd_decl            : TDictionary<string,PObj>;
     // Fill predefined elements
     procedure InitSystem;
     function GetUnknownType: PType;
@@ -388,6 +390,8 @@ type
     property ModId: string read FModId;
     property Module: TModule read FModule write FModule;
     property UnknownType: PType read GetUnknownType;
+
+    property fwd_decl  : TDictionary<string,PObj> read Ffwd_decl write Ffwd_decl;
   end;
 
 {$EndRegion}
@@ -490,6 +494,7 @@ begin
   New(Result);
   Result^ := Default(TObjDesc);
   Result.cls := TMode.mUnknown;
+  Result.aux := nil;
 end;
 
 function TObjDesc.DelphiName: string;
@@ -718,6 +723,7 @@ end;
 procedure TpbTable.Find(var obj: PObj; const id: string);
 var
   s, x: PObj;
+  pNext : PObj;
 begin
   s := FTopScope; FGuard.name := id;
   repeat
@@ -731,11 +737,35 @@ begin
     end;
     if s = FUniverse then
     begin
-      x := FModule.FImport.dsc;
-      while x.name <> id do
-        x := x.next;
+      x := FModule.FImport;
+      while  true  do
+      begin
+          pNext := x;
+          x := x.dsc;
+          while x.name <> id do
+            x := x.next;
+
+          if x = FGuard then
+            x := pNext.next
+          else
+           Break;
+
+          if x = FGuard then Break;
+      end;
       if x = FGuard then
-        parser.SemError(2);
+      begin
+        var p := TObjDesc.GetInstance(TMode.mType);
+        p.cls := TMode.mType;
+        p.name := FGuard.name;
+        p.typ  := FGuard.typ;
+        p.typ^.form := TTypeMode.tmMessage;
+        p.typ^.declaration.cls := p.cls;
+        p.typ^.declaration.name := p.name;
+        obj := p;
+        Ffwd_decl.AddOrSetValue(id,@obj);
+        //parser.SemError(2);
+        Exit;
+      end;
       obj := x;
       exit;
     end;
@@ -747,6 +777,7 @@ procedure TpbTable.OpenScope;
 var s: PObj;
 begin
   New(s);
+  s^ := default(TObjDesc);
   s.cls := TMode.mHead;
   s.dsc := FTopScope;
   s.next := FGuard;
@@ -762,7 +793,7 @@ procedure TpbTable.Enter(cls: TMode; n: Integer; name: string; var typ: PType);
 var
   obj: PObj;
 begin
-  New(obj);
+  New(obj); obj^ := Default(TObjDesc) ;
   obj.cls := cls; obj.val := n; obj.name := name;
   NewType(obj, TTypeMode(n)); typ := obj.typ;
   obj.dsc := nil;
