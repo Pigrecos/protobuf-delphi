@@ -172,7 +172,7 @@ procedure TCustomGen.GenerateCode;
 var
   ns: string;
 begin
-  ns := AsCamel(Tab.Module.Name);
+  ns := 'ProtoGen.'+AsCamel(Tab.Module.Name);
   Wrln('unit %s;', [ns]);
   Wrln;
   Wrln('interface');

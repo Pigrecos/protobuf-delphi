@@ -870,7 +870,7 @@ begin
       begin
         parser.gen.GenerateCode;
         str.Text := parser.gen.Code;
-        filename := TPath.Combine(options.srcDir, AsCamel(stem) + '.pas');
+        filename := TPath.Combine(options.srcDir, AsCamel('ProtoGen.'+stem) + '.pas');
         str.SaveToFile(filename);
       end;
     finally

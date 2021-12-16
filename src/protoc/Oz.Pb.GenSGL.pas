@@ -83,9 +83,28 @@ begin
 end;
 
 procedure TGenSGL.GenUses;
+var
+  x : PObj;
 begin
   Wrln('uses');
-  Wrln('  System.Classes, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes;');
+
+  if tab.Module.Import <> nil then
+  begin
+      Wrln('  System.Classes, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes,');
+      x := tab.Module.Import;
+      while x <> tab.Guard do
+      begin
+          var sUserUnit : string := '  ProtoGen.'+x.name.Replace('_','');
+          if x.next <> tab.Guard then  sUserUnit := sUserUnit + ','
+          else                         sUserUnit := sUserUnit + ';' ;
+          Wrln(sUserUnit);
+          x := x.next;
+      end;
+  end else
+  begin
+      Wrln('  System.Classes, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes;');
+  end;
+
   Wrln;
   Wrln('{$T+}');
   Wrln;
