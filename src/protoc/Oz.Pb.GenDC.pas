@@ -73,7 +73,7 @@ begin
 
   if tab.Module.Import <> nil then
   begin
-      Wrln('  System.Classes, System.SysUtils, Generics.Collections, Oz.Pb.Classes,');
+      Wrln('  System.Classes, System.Generics.Collections, System.Rtti, System.SysUtils, Generics.Collections, Oz.Pb.Classes,');
       x := tab.Module.Import;
       while x <> tab.Guard do
       begin

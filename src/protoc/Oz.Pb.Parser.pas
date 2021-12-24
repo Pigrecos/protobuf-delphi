@@ -162,7 +162,8 @@ begin
   tab.Module := TModule(obj.aux);
   tab.OpenScope;
 
-  tab.fwd_decl  := TDictionary<string,PObj>.Create;
+  tab.fwd_decl     := TDictionary<string,PObj>.Create;
+  tab.Extern_decl  := TDictionary<string,PObj>.Create;
 
   _Syntax(obj);
   while StartOf(1) do
@@ -210,7 +211,45 @@ begin
   for var item in tab.fwd_decl do
   begin
       var TypeObj : PObj;
-      tab.Find(TypeObj,item.Key)
+      TypeObj := tab.FindTypeNameInModule(item.Key,tab.Module.Obj);
+      if TypeObj <> nil then
+      begin
+          tab.fwd_decl[item.Key] := TypeObj;
+      end else
+      begin
+          TypeObj := tab.FindTypeNameInImport(item.Key);
+          if TypeObj <> nil then
+          begin
+             tab.Extern_decl[item.Key] := TypeObj;
+             tab.fwd_decl[item.Key]    := TypeObj;
+          end
+          else
+             SemError(2);
+      end;
+  end;
+
+  var ProtoObj := tab.Module.Obj; // root proto file
+  var x        := ProtoObj.dsc;
+  while (x <> nil) and  (x  <> tab.Guard)do
+  begin
+    if x.cls = TMode.mType then
+    begin
+       if x.typ.form = TTypeMode.tmMessage then
+       begin
+          var typ := x.typ;
+          var y := typ.dsc;
+          while y <> nil  do
+          begin
+            if tab.fwd_decl.ContainsKey(y.typ.declaration.name) then
+            begin
+                 y.typ     := tab.fwd_decl[y.typ.declaration.name].typ;
+                 y.dsc     := tab.fwd_decl[y.typ.declaration.name].dsc
+            end;
+            y := y.next;
+          end;
+       end;
+    end;
+    x := x.next;
   end;
 end;
 procedure TpbParser._Syntax(var obj: PObj);

@@ -15,20 +15,16 @@
  * You should have received a copy of the GNU General Public License
  * along with this file. If not, see <https://www.gnu.org/licenses/>.
  *)
-
 unit Oz.Pb.CustomGen;
-
 interface
-
 uses
   System.Classes, System.SysUtils, Generics.Collections,
   Oz.Cocor.Utils, Oz.Cocor.Lib, Oz.Pb.Tab, Oz.Pb.Classes, Oz.Pb.Gen;
-
 {$Region 'TCustomGen: A base class for the code generator'}
-
 type
   TCustomGen = class(TGen)
   protected
+    FImportProcess : Boolean;
     sb: TStringBuilder;
     IndentLevel: Integer;
     maps: TMapTypes;
@@ -53,6 +49,8 @@ type
     function FieldTag(obj: PObj): string;
     // Field tag declaration
     procedure FieldTagDecl(obj: PObj);
+    // Union declaration
+    procedure UnionDecl(u:PObj);
     // Field declaration
     procedure FieldDecl(obj: PObj);
     // field property
@@ -71,7 +69,6 @@ type
     procedure FieldReflection(obj: PObj);
     // unused
     procedure GenComment(const comment: string);
-
     // Message code
     function GetPair(maptypes: TMapTypes; typ: PType; mas: TGetMap): string;
     procedure MessageDecl(msg: PObj);
@@ -81,18 +78,17 @@ type
     procedure LoadImpl(msg: PObj);
     procedure SaveImpl(msg: PObj);
     procedure SaveMaps;
-
     // Top level code
     procedure ModelDecl;
     procedure ModelImpl;
     procedure BuilderDecl(Load: Boolean);
     procedure BuilderImpl(Load: Boolean);
     function GetBuilderName(Load: Boolean): string;
-
     // abstract
     function RepeatedCollection: string; virtual; abstract;
     function MapCollection: string; virtual; abstract;
     function CreateName: string; virtual; abstract;
+    function CreateMapName: string; virtual; abstract;
     procedure GenUses; virtual; abstract;
     procedure GenDecl(Load: Boolean); virtual; abstract;
     procedure GenEntityType(msg: PObj); virtual; abstract;
@@ -112,11 +108,8 @@ type
     destructor Destroy; override;
     procedure GenerateCode; override;
   end;
-
 {$EndRegion}
-
 {$Region 'TFieldGen: Auxiliary class for the field generator'}
-
   TFieldGen = record
   var
     g: TCustomGen;
@@ -137,24 +130,19 @@ type
     procedure Init(g: TCustomGen; obj: PObj; o: TFieldOptions; const ft: string);
     procedure Gen;
   end;
-
 {$EndRegion}
-
 implementation
-
 uses
   Oz.Pb.Parser;
-
 {$Region 'TCustomGen'}
-
 constructor TCustomGen.Create(Parser: TBaseParser);
 begin
   inherited;
+  FImportProcess := False;
   sb := TStringBuilder.Create;
   maps := TList<PType>.Create;
   mapvars := TList<PType>.Create;
 end;
-
 destructor TCustomGen.Destroy;
 begin
   mapvars.Free;
@@ -162,12 +150,10 @@ begin
   sb.Free;
   inherited;
 end;
-
 function TCustomGen.GetCode: string;
 begin
   Result := sb.ToString;
 end;
-
 procedure TCustomGen.GenerateCode;
 var
   ns: string;
@@ -181,6 +167,11 @@ begin
   Wrln('type');
   Wrln;
   Indent;
+
+  for var Item in tab.fwd_decl do
+      Wrln('T'+Item.Key+' = class;');
+  Wrln;
+
   try
     ModelDecl;
     BuilderDecl({Load=}True);
@@ -195,11 +186,9 @@ begin
   BuilderImpl(False);
   Wrln('end.');
 end;
-
 procedure TCustomGen.GenInitLoaded;
 begin
 end;
-
 procedure TCustomGen.ModelDecl;
 var
   obj, x: PObj;
@@ -217,7 +206,6 @@ begin
     x := x.next;
   end;
 end;
-
 procedure TCustomGen.ModelImpl;
 var
   obj, x: PObj;
@@ -232,7 +220,6 @@ begin
     x := x.next;
   end;
 end;
-
 procedure TCustomGen.EnumDecl(obj: PObj);
 var
   x: PObj;
@@ -253,7 +240,6 @@ begin
   end;
   Wrln;
 end;
-
 procedure TCustomGen.MapDecl(obj: PObj);
 var
   x: PObj;
@@ -274,12 +260,14 @@ begin
     [obj.AsType, key.declaration.AsType, Value.declaration.AsType]);
   Wrln;
 end;
-
 procedure TCustomGen.MessageDecl(msg: PObj);
 var
   x: PObj;
   typ: PType;
 begin
+  if tab.fwd_decl.ContainsKey(msg.name) then
+    FImportProcess := True;
+
   // generate nested messages
   x := msg.dsc;
   while x <> tab.Guard do
@@ -292,9 +280,7 @@ begin
       end;
     x := x.next;
   end;
-
   GenEntityType(msg);
-
   // generate field tag definitions
   Wrln('const');
   Indent;
@@ -310,7 +296,6 @@ begin
   finally
     Dedent;
   end;
-
   // generate field declarations
   Wrln('private');
   Indent;
@@ -324,7 +309,6 @@ begin
   finally
     Dedent;
   end;
-
   Wrln('public');
   Indent;
   try
@@ -338,16 +322,18 @@ begin
     end;
   finally
     Dedent;
+    FImportProcess := False;
   end;
-
   Wrln('end;'); // class
   Wrln;
 end;
-
 procedure TCustomGen.MessageImpl(msg: PObj);
 var
   x: PObj;
 begin
+  if tab.fwd_decl.ContainsKey(msg.name) then
+    FImportProcess := True;
+
   // generate nested messages
   x := msg.dsc;
   while x <> tab.Guard do
@@ -357,12 +343,13 @@ begin
         MessageImpl(x);
     x := x.next;
   end;
-
   Wrln('{ %s }', [msg.AsType]);
   Wrln;
   GenEntityImpl(msg);
   Wrln('end;');
   Wrln;
+
+  FImportProcess := False;
 end;
 
 procedure TCustomGen.LoadDecl(msg: PObj);
@@ -383,7 +370,6 @@ begin
     x := x.next;
   end;
 end;
-
 procedure TCustomGen.SaveDecl(msg: PObj);
 var
   typ: PType;
@@ -408,13 +394,11 @@ begin
       end;
   end;
 end;
-
 procedure TCustomGen.LoadImpl(msg: PObj);
 var
   x: PObj;
   typ: PType;
   s, t: string;
-
   procedure ReadUnion(x: PObj);
   var
     o: TFieldOptions;
@@ -432,15 +416,17 @@ var
       Indent;
       Wrln('begin');
       Wrln('  Assert(wireType = TWire.%s);', [w]);
-      Wrln('  %s.tag := %s;', [f, tag]);
-      Wrln('  %s.value := %s;', [f, GetRead(x)]);
+      Wrln('  var v : %s;', ['TpbOneof']);
+      Wrln('  v.tag := %s;', [tag]);
+      Wrln('  v.value := %s;', [GetRead(x)]);
+
+      Wrln('  %s.value := v;', [f]);
       Wrln('end;');
       Dedent;
       x := x.next;
     end;
     Dedent;
   end;
-
 begin
   // generate nested messages
   x := msg.dsc;
@@ -495,12 +481,10 @@ begin
   Wrln('end;');
   Wrln('');
 end;
-
 procedure TCustomGen.SaveImpl(msg: PObj);
 var
   typ: PType;
   x: PObj;
-
   function HasRepeatedVars(x: PObj): Boolean;
   begin
     while x <> tab.Guard do
@@ -511,7 +495,6 @@ var
     end;
     Result := False;
   end;
-
   procedure SaveMessage;
   var
     x: PObj;
@@ -530,6 +513,12 @@ var
       end;
       x := x.next;
     end;
+    Wrln('var ');
+    Indent;
+    Wrln('i : Integer;');
+    Dedent;
+    Wrln('');
+
     Wrln('begin');
     Indent;
     try
@@ -546,7 +535,6 @@ var
     Wrln('end;');
     Wrln('');
   end;
-
 begin
   // generate nested messages
   x := msg.dsc;
@@ -561,7 +549,6 @@ begin
   if (msg.cls = TMode.mType) and (typ.form = TTypeMode.tmMessage) then
     SaveMessage;
 end;
-
 procedure TFieldGen.Init(g: TCustomGen; obj: PObj; o: TFieldOptions; const ft: string);
 begin
   Self.g := g;
@@ -575,7 +562,6 @@ begin
   n := obj.DelphiName;
   t := obj.AsType;
 end;
-
 procedure TFieldGen.Gen;
 begin
   if o.Default <> '' then
@@ -600,7 +586,6 @@ begin
   if o.Default <> '' then
     g.Dedent;
 end;
-
 function TFieldGen.GetTag: string;
 begin
   if (ft = '1') or (ft = '2') then
@@ -608,11 +593,14 @@ begin
   else
     Result := mt + '.' + ft;
 end;
-
 procedure TFieldGen.GenType;
 var
   m: string;
+  FFieldPrefix : string;
 begin
+  if g.FImportProcess then  FFieldPrefix := ''
+  else                      FFieldPrefix := 'F' ;
+
   // Pb.writeString(TPerson.ftName, Person.Name);
   if o.rule <> TFieldRule.Repeated then
   begin
@@ -624,28 +612,38 @@ begin
     g.Wrln('S.Init;');
     g.Wrln('try');
     n := Plural(n);
-    g.Wrln('  for i := 0 to %s.%s.Count - 1 do', [mn, n]);
+    if TObjDesc.Keywords.IndexOf(n) >= 0 then
+    begin
+        if FFieldPrefix = '' then
+           n := '&'+ n;
+    end;
+
+    g.Wrln('  for i := 0 to Value.%s.Count - 1 do', [n]);
     case obj.typ.form of
       TTypeMode.tmInt32, TTypeMode.tmUint32, TTypeMode.tmSint32,
       TTypeMode.tmBool, TTypeMode.tmEnum:
-        g.Wrln('    S.Pb.writeRawVarint32(%s.F%s[i]);', [mn, n]);
+        begin
+            if obj.typ.form = TTypeMode.tmBool then
+               g.Wrln('    S.Pb.writeRawVarint32(Integer(Value.%s%s[i]^));', [FFieldPrefix, n])
+            else
+               g.Wrln('    S.Pb.writeRawVarint32(Value.%s%s[i]^);', [FFieldPrefix, n]);
+        end;
       TTypeMode.tmInt64, TTypeMode.tmUint64, TTypeMode.tmSint64:
-        g.Wrln('    S.Pb.writeRawVarint64(%s.F%s[i]);', [mn, n]);
+        g.Wrln('    S.Pb.writeRawVarint64(Value.%s%s[i]^);', [FFieldPrefix, n]);
       TTypeMode.tmFixed64, TTypeMode.tmSfixed64, TTypeMode.tmDouble,
       TTypeMode.tmSfixed32, TTypeMode.tmFixed32, TTypeMode.tmFloat:
-        g.Wrln('    S.Pb.writeRawData(%s.F%s[i], sizeof(%s));', [mn, n, t]);
+        g.Wrln('    S.Pb.writeRawData(Value.%s%s[i], sizeof(%s));', [FFieldPrefix, n, t]);
       TTypeMode.tmString:
-        g.Wrln('    S.Pb.writeRawString(%s.F%s[i]);', [mn, n]);
+        g.Wrln('    S.Pb.writeRawString(Value.%s%s[i]^);', [FFieldPrefix, n]);
       TTypeMode.tmBytes:
-        g.Wrln('    S.Pb.writeRawBytes(%s.F%s[i]);', [mn, n]);
+        g.Wrln('    S.Pb.writeRawBytes(Value.%s%s[i]^);', [FFieldPrefix,n]);
     end;
-    g.Wrln('  S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
+    g.Wrln('  S.Pb.writeMessage(%s, S.Pb^);', [GetTag]);
     g.Wrln('finally');
     g.Wrln('  S.Free;');
     g.Wrln('end;');
   end;
 end;
-
 procedure TFieldGen.GenEnum;
 begin
   if o.rule <> TFieldRule.Repeated then
@@ -663,28 +661,31 @@ begin
     g.Wrln('end;');
   end;
 end;
-
 procedure TFieldGen.GenMessage;
+var
+  FFieldPrefix : string;
 begin
+  if g.FImportProcess then  FFieldPrefix := ''
+  else                      FFieldPrefix := 'F' ;
+
   if o.rule <> TFieldRule.Repeated then
   begin
     if (ft <> '2') and checkNil then
     begin
-      g.Wrln('if Value.F%s <> nil then', [n]);
+      g.Wrln('if Value.%s%s <> nil then', [FFieldPrefix,n]);
       g.Indent;
     end;
-    g.Wrln('S.SaveObj<%s>(Value.F%s, Save%s, %s);', [t, n, m, GetTag]);
+    g.Wrln('S.SaveObj<%s>(Value.%s%s, Save%s, %s);', [t, FFieldPrefix,n, m, GetTag]);
     if (ft <> '2') and checkNil then
       g.Dedent;
   end
   else
   begin
     n := AsCamel(Plural(n));
-    g.Wrln('if Value.F%s.Count > 0 then', [n]);
-    g.Wrln('  S.SaveList<%s>(Value.F%s, Save%s, %s);', [t, n, m, GetTag]);
+    g.Wrln('if Value.%s%s.Count > 0 then', [FFieldPrefix,n]);
+    g.Wrln('  S.SaveList<%s>(Value.%s%s, Save%s, %s);', [t, FFieldPrefix,n, m, GetTag]);
   end;
 end;
-
 procedure TFieldGen.GenMap(const pair: string);
 var s: string;
 begin
@@ -692,7 +693,7 @@ begin
   begin
     if ft <> '2' then
     begin
-      g.Wrln('if %s.F%s <> nil then', [mn, n]);
+      g.Wrln('if Value.F%s <> nil then', [n]);
       g.Wrln('begin');
       g.Indent;
     end;
@@ -725,7 +726,6 @@ begin
     g.Wrln('end;');
   end;
 end;
-
 procedure TFieldGen.GenUnion;
 var
   fg: TFieldGen;
@@ -740,21 +740,18 @@ begin
     x := x.next;
   end;
 end;
-
 procedure TCustomGen.SaveMaps;
 var
   typ: PType;
   map, key, value: PObj;
   s, t: string;
   ko, vo: TFieldOptions;
-
   procedure G(obj: PObj; o: TFieldOptions; const ft: string);
   var fg: TFieldGen;
   begin
     fg.Init(Self, obj, o, ft);
     fg.Gen;
   end;
-
 begin
   pairMessage.cls := TMode.mType;
   pairMessage.name := 'Item';
@@ -786,7 +783,6 @@ begin
     Wrln('');
   end;
 end;
-
 function TCustomGen.FieldTag(obj: PObj): string;
 var
   n: string;
@@ -802,6 +798,22 @@ begin
   Result := 'ft' + n;
 end;
 
+procedure TCustomGen.UnionDecl(u:PObj);
+var
+  fg: TFieldGen;
+  x: PObj;
+begin
+  x := u.typ.dsc;
+  if x = nil then exit;
+  while x <> tab.Guard do
+  begin
+    var o := x.aux as TFieldOptions;
+
+    Wrln('%s = %d;', [FieldTag(x), o.Tag]);
+    x := x.next;
+  end;
+end;
+
 procedure TCustomGen.FieldTagDecl(obj: PObj);
 var o: TFieldOptions;
 begin
@@ -809,9 +821,12 @@ begin
    ftId = 1;
 *)
   o := obj.aux as TFieldOptions;
-  Wrln('%s = %d;', [FieldTag(obj), o.Tag]);
-end;
 
+  if obj.typ.form = TTypeMode.tmUnion then
+     UnionDecl(obj)
+  else
+     Wrln('%s = %d;', [FieldTag(obj), o.Tag]);
+end;
 procedure TCustomGen.FieldDecl(obj: PObj);
 var
   n, t: string;
@@ -833,7 +848,6 @@ begin
   end;
   Wrln('%s: %s;', [n, t]);
 end;
-
 procedure TCustomGen.FieldProperty(obj: PObj);
 var
   n, f, t, s: string;
@@ -852,6 +866,7 @@ begin
     t := 'TpbOneof'
   else
     t := obj.AsType;
+
   if o.Rule = TFieldRule.Repeated then
   begin
     ro := True;
@@ -860,6 +875,8 @@ begin
     f := 'F' + n;
     if TObjDesc.Keywords.IndexOf(f) >= 0 then
       f := '&' + f;
+    if TObjDesc.Keywords.IndexOf(n) >= 0 then
+      n := '&' + n;
   end;
   s := Format('property %s: %s read %s', [n, t, f]);
   if ro then
@@ -868,7 +885,6 @@ begin
     s := s + Format(' write %s;', [f]);
   Wrln(s);
 end;
-
 procedure TCustomGen.FieldInit(obj: PObj);
 var
   f, t, coll: string;
@@ -898,10 +914,9 @@ begin
     key := obj.typ.dsc;
     value := key.next;
     coll := Format(MapCollection, [key.AsType, value.AsType]);
-    Wrln('%s := %s.%s;', [Plural(f), coll, CreateName]);
+    Wrln('%s := %s.%s;', [f, coll, CreateMapName]);
   end;
 end;
-
 procedure TCustomGen.FieldFree(obj: PObj);
 var
   f: string;
@@ -914,7 +929,6 @@ begin
   else if obj.typ.form = TTypeMode.tmMap then
     Wrln('%s.Free;', [f])
 end;
-
 function TCustomGen.GetRead(obj: PObj): string;
 var
   msg: PObj;
@@ -928,7 +942,9 @@ begin
     TTypeMode.tmMessage:
       Result := GenRead(msg);
     TTypeMode.tmEnum:
-      Result := Format('T%s(Pb.readInt32)', [m]);
+      begin
+        Result := Format('T%s(Pb.readInt32)', [m])
+      end;
     TTypeMode.tmMap:
       begin
         key := obj.typ.dsc;
@@ -939,17 +955,16 @@ begin
       Result := 'Pb.readBoolean';
     TTypeMode.tmInt64, TTypeMode.tmUint64:
       Result := 'Pb.readInt64';
-    else
+    else  begin
       Result := Format('Pb.read%s', [AsCamel(msg.name)]);
+    end;
   end;
 end;
-
 procedure TCustomGen.FieldRead(obj: PObj);
 var
   o: TFieldOptions;
   msg: PObj;
   w, mn, mt, m, n: string;
-
   procedure GenType;
   begin
     if o.Rule <> TFieldRule.Repeated then
@@ -966,7 +981,13 @@ var
       Wrln('Pb.Push;');
       Wrln('try');
       Wrln('  while not Pb.Eof do');
+      Wrln('  begin');
+      Indent;
+      Indent;
       GenFieldRead(obj);
+      Dedent;
+      Dedent;
+      Wrln('  end');
       Wrln('finally');
       Wrln('  Pb.Pop;');
       Wrln('end;');
@@ -974,7 +995,6 @@ var
       Wrln('end;');
     end;
   end;
-
   procedure GenEnum;
   begin
     if o.Rule <> TFieldRule.Repeated then
@@ -991,7 +1011,13 @@ var
       Wrln('Pb.Push;');
       Wrln('try');
       Wrln('  while not Pb.Eof do');
+      Wrln('  begin');
+      Indent;
+      Indent;
       GenFieldRead(obj);
+      Dedent;
+      Dedent;
+      Wrln('  end');
       Wrln('finally');
       Wrln('  Pb.Pop;');
       Wrln('end;');
@@ -999,7 +1025,6 @@ var
       Wrln('end;');
     end;
   end;
-
   procedure GenMessage;
   begin
     Wrln('begin');
@@ -1009,12 +1034,10 @@ var
     Dedent;
     Wrln('end;');
   end;
-
   procedure GenMap;
   begin
     Wrln('%s.%s.AddOrSetValue(%s);', [o.Msg.name, n, GetRead(obj)]);
   end;
-
 begin
   o := obj.aux as TFieldOptions;
   mn := o.Msg.DelphiName;
@@ -1041,7 +1064,6 @@ begin
     Dedent;
   end;
 end;
-
 procedure TCustomGen.FieldWrite(obj: PObj);
 var
   fg: TFieldGen;
@@ -1050,12 +1072,10 @@ begin
   fg.Init(Self, obj, obj.aux as TFieldOptions, FieldTag(obj));
   fg.Gen;
 end;
-
 procedure TCustomGen.FieldReflection(obj: PObj);
 begin
   raise Exception.Create('under consruction');
 end;
-
 procedure TCustomGen.GenComment(const comment: string);
 var
   s: string;
@@ -1063,7 +1083,6 @@ begin
   for s in comment.Split([#13#10], TStringSplitOptions.None) do
     Wrln('// ' + s)
 end;
-
 function TCustomGen.GetPair(maptypes: TMapTypes; typ: PType; mas: TGetMap): string;
 var
   msg, key, value: PObj;
@@ -1082,7 +1101,6 @@ begin
   value := key.next;
   Result := Format('%s: TPair<%s, %s>', [s, key.AsType, value.AsType]);
 end;
-
 function TCustomGen.GetBuilderName(Load: Boolean): string;
 begin
   if Load then
@@ -1090,12 +1108,11 @@ begin
   else
     Result := 'TSaveHelper';
 end;
-
 procedure TCustomGen.BuilderDecl(Load: Boolean);
 const
   Names: array [Boolean] of string = ('TpbSaver', 'TpbLoader');
 var
-  obj, x, m: PObj;
+  obj, x, m,importType: PObj;
   typ: PType;
   s: string;
 begin
@@ -1116,6 +1133,24 @@ begin
           SaveDecl(x);
       x := x.next;
     end;
+
+    FImportProcess := True;
+    importType := tab.Module.Import;
+    while (importType <> nil) and (importType <> tab.Guard)  do
+    begin
+      x := importType.dsc;
+      while x <> nil do
+      begin
+        if x.cls = TMode.mType then
+          if Load then
+            LoadDecl(x)
+          else
+            SaveDecl(x);
+        x := x.next;
+      end;
+      importType := importType.next;
+    end;
+
     if not Load then
       for typ in maps do
       begin
@@ -1125,74 +1160,84 @@ begin
       end;
   finally
     Dedent;
+     FImportProcess := False;
   end;
   Wrln('end;');
   Wrln;
 end;
-
 procedure TCustomGen.BuilderImpl;
 var
-  obj, x: PObj;
+  obj, x, importType: PObj;
 begin
+  FImportProcess := False;
+
   if Load then
     GenLoadImpl
   else
     GenSaveProc;
   obj := tab.Module.Obj; // root proto file
   x := obj.dsc;
-  while x <> nil do
+  while x <> nil  do
   begin
     if x.cls = TMode.mType then
       if Load then
-      begin
-        LoadImpl(x);
-      end
+        LoadImpl(x)
       else
         SaveImpl(x);
     x := x.next;
   end;
+
+  FImportProcess := True;
+  importType := tab.Module.Import;
+  while (importType <> nil) and (importType <> tab.Guard)  do
+  begin
+    x := importType.dsc;
+    while x <> nil do
+    begin
+      if x.cls = TMode.mType then
+        if Load then
+          LoadImpl(x)
+        else
+          SaveImpl(x);
+      x := x.next;
+    end;
+    importType := importType.next;
+  end;
+  FImportProcess := False;
+
   if not Load then
     SaveMaps;
 end;
-
 procedure TCustomGen.Wr(const s: string);
 begin
   sb.Append(s);
 end;
-
 procedure TCustomGen.Wr(const f: string; const Args: array of const);
 begin
   sb.AppendFormat(Blank(IndentLevel * 2) + f, Args);
 end;
-
 procedure TCustomGen.Wrln;
 begin
   sb.AppendLine;
 end;
-
 procedure TCustomGen.Wrln(const s: string);
 begin
   sb.AppendLine(Blank(IndentLevel * 2) + s);
 end;
-
 procedure TCustomGen.Wrln(const f: string; const Args: array of const);
 begin
   sb.AppendFormat(Blank(IndentLevel * 2) + f, Args);
   sb.AppendLine;
 end;
-
 procedure TCustomGen.Indent;
 begin
   Inc(IndentLevel);
 end;
-
 procedure TCustomGen.Dedent;
 begin
   Dec(IndentLevel);
   if IndentLevel < 0 then
     IndentLevel := 0;
 end;
-
 {$EndRegion}
-
 end.

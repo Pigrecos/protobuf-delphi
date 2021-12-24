@@ -15,36 +15,25 @@
  * You should have received a copy of the GNU General Public License
  * along with this file. If not, see <https://www.gnu.org/licenses/>.
  *)
-
 unit Oz.Pb.Tab;
-
 interface
-
 uses
   System.Classes, System.SysUtils, System.Rtti, Generics.Collections, System.IOUtils,
   Oz.Cocor.Utils, Oz.Cocor.Lib, Oz.Pb.Classes;
-
 {$SCOPEDENUMS on}
-
 {$Region 'Forward declarations'}
-
 type
-
   TpbTable = class;  // Parsing context
   TModule = class;   // .proto file
   TAux = class;      // object options
-
 {$EndRegion}
-
 {$Region 'TConst: constant identifier, integer, float, string or boolean value'}
-
   TConstType = (
     cIdent = 0,   // for instance: true, false or null
     cInt = 1,
     cFloat = 2,
     cStr = 3,
     cBool = 4);
-
   TConst = record
   var
     typ: TConstType;
@@ -56,42 +45,31 @@ type
     procedure AsStr(const Value: string);
     function AsBool(const Value: string): Boolean;
   end;
-
 {$EndRegion}
-
 {$Region 'TQualIdent: User defined type'}
-
   TQualIdent = record
     OutermostScope: Boolean;
     Package: string;
     Name: string;
   end;
-
 {$EndRegion}
-
 {$Region 'TSyntaxVersion, TAccessModifier, TPackageKind'}
-
   // The first line of the file specifies that you're using proto3 syntax:
   // if you don't do this the protocol buffer compiler will assume
   // you are using proto2.
   TSyntaxVersion = (Proto2, Proto3);
-
   // Access modifier, used for fields
   TAccessModifier = (
     acsPublic,
     acsProtected,
     acsPrivate);
-
   // Generated package kind
   TPackageKind = (
     pkClass,
     pkRecord,
     pkInterface);
-
 {$EndRegion}
-
 {$Region 'TMode, TTypeMode, PObj, TObjDesc, PType, TTypeDesc'}
-
   // Obj mode
   TMode = (
     mUnknown,
@@ -104,11 +82,9 @@ type
     mType,      // type
     mProc,      // procedure
     mPackage);  // proto package
-
   // Type mode
   TTypeMode = (
     tmUnknown,  // Unknown
-
     // Embedded types
     tmDouble,   // Double
     tmFloat,    // Single
@@ -125,19 +101,15 @@ type
     tmSfixed64, // Int64
     tmSint32,   // Integer
     tmSint64,   // Int64
-
     // User defined types
     tmEnum,     // enumeration
     tmMessage,  // message
     tmArray,    // array
     tmMap,      // map
     tmUnion);   // union (oneOf)
-
   TEmbeddedTypes = TTypeMode.tmUnknown .. TTypeMode.tmSint64;
-
   PObj = ^TObjDesc;
   PType = ^TTypeDesc;
-
   TObjDesc = record
   class var
     Keywords: TStringList;
@@ -163,7 +135,6 @@ type
     // if all ok then update the option value.
     procedure AddOption(const name: string; const val: TConst);
   end;
-
   TTypeDesc = record
     form: TTypeMode;
     declaration: PObj;    // type declaration
@@ -171,22 +142,17 @@ type
     base: PType;
     size, len: Integer;
   end;
-
 {$EndRegion}
-
 {$Region 'TpbPackage: Package specifier'}
-
 (*  Package Definition
     ------------------
     Within a single module, the Package Definition may occur from 0 to n.
     Some names of declarations may coincide in different modules.
     In principle, the names of declarations can coincide even within a single file.
     No one prohibits using the same name in nested messages.
-
     You can distinguish two different definitions by using a composite name
     (package name + definition name).
     By default, the package name is empty.
-
     Interpretation of the package value
     -----------------------------------
     The package definition can be placed several times anywhere in the module.
@@ -201,20 +167,14 @@ type
     Name: string;
     Types: PType;
   end;
-
 {$EndRegion}
-
 {$Region 'TpbOption: can be used in proto files, messages, fields, enums and services'}
-
   TpbOption = record
     Name: string;
     Cval: TConst;
   end;
-
 {$EndRegion}
-
 {$Region 'TAux: auxiliary data for object'}
-
   // All additional attributes of the object are placed in auxilary data:
   //  - comments;
   //  - additional object fields;
@@ -229,11 +189,8 @@ type
     constructor Create(Obj: PObj);
     procedure Update(const id: string; const cv: TConst);
   end;
-
 {$EndRegion}
-
 {$Region 'TMessageOptions: message options'}
-
   TMessageOptions = class(TAux)
   var
     Reserved: TIntSet;
@@ -242,14 +199,10 @@ type
     constructor Create(Obj: PObj);
     destructor Destroy; override;
   end;
-
 {$EndRegion}
-
 {$Region 'TFieldOptions: field options'}
-
   // Rules for fields in .proto files
   TFieldRule = (Singular, Optional, Repeated);
-
   TFieldOptions = class(TAux)
   type
     TOptionKind = (
@@ -274,42 +227,29 @@ type
   public
     constructor Create(Obj, Msg: PObj; Tag: Integer; Rule: TFieldRule);
   end;
-
 {$EndRegion}
-
 {$Region 'TRpcOptions'}
-
   TRpcOptions = class(TAux)
   var
     requestStream: Boolean;
     responseStream: Boolean;
   end;
-
 {$EndRegion}
-
 {$Region 'TEnumOptions'}
-
   // Enum options kind
   TEnumOptionKind = (foNamespace, foAllowAlias);
-
   TEnumOptions = class(TAux)
   var
     foAllowAlias: Boolean;
   end;
-
 {$EndRegion}
-
 {$Region 'TMapOptions'}
-
   TMapOptions = class(TAux)
   var
     foAllowAlias: Boolean;
   end;
-
 {$EndRegion}
-
 {$Region 'TModule: translation unit'}
-
   // Importing definition
   // import = "import" [ "weak" | "public" ] strLit ";"
   TModule = class(TAux)
@@ -330,11 +270,8 @@ type
     property Import: PObj read FImport;
     property NameSpace: string read GetNameSpace;
   end;
-
 {$EndRegion}
-
 {$Region 'TpbTable: '}
-
   // Uses the singleton pattern for its creation.
   TpbTable = class(TCocoPart)
   private
@@ -346,8 +283,8 @@ type
     FModId: string;
     // predefined types
     FEmbeddedTypes: array [TEmbeddedTypes] of PType;
-
     Ffwd_decl            : TDictionary<string,PObj>;
+    FExtern_decl         : TDictionary<string,PObj>;
     // Fill predefined elements
     procedure InitSystem;
     function GetUnknownType: PType;
@@ -360,6 +297,10 @@ type
     procedure NewType(const obj: PObj; form: TTypeMode);
     // Find identifier
     procedure Find(var obj: PObj; const id: string);
+    // Find Type on Import Module
+    function FindTypeNameInImport(name: string): PObj;
+    // Find forward declaration type
+    function FindTypeNameInModule(name: string; mModule: PObj): PObj;
     // Open scope
     procedure OpenScope;
     // Open scope
@@ -390,14 +331,11 @@ type
     property ModId: string read FModId;
     property Module: TModule read FModule write FModule;
     property UnknownType: PType read GetUnknownType;
-
     property fwd_decl  : TDictionary<string,PObj> read Ffwd_decl write Ffwd_decl;
+    property Extern_decl  : TDictionary<string,PObj> read FExtern_decl write FExtern_decl;
   end;
-
 {$EndRegion}
-
 function GetWireType(tm: TTypeMode): TWireType;
-
 const
   // type name in proto file
   EmbeddedTypes: array [TEmbeddedTypes] of string = (
@@ -414,7 +352,6 @@ const
     'Unknown', 'Double', 'Float', 'Int64', 'Int64', 'Int32',
     'Int64', 'Int32', 'Boolean', 'string', 'Bytes',
     'Int32', 'Fixed32', 'Fixed64', 'Int32', 'Int64');
-
   DelphiKeywords: array [0 .. 64] of string = (
     'and', 'array', 'as', 'asm', 'begin', 'case', 'class', 'const',
     'constructor', 'destructor', 'dispinterface', 'div', 'do', 'downto',
@@ -425,13 +362,10 @@ const
     'program', 'property', 'raise', 'record', 'repeat', 'resourcestring',
     'set', 'shl', 'shr', 'string', 'then', 'threadvar', 'to', 'try',
     'type', 'unit', 'until', 'uses', 'var', 'while', 'with', 'xor');
-
 implementation
-
 uses
   Oz.Pb.Scanner,
   Oz.Pb.Parser;
-
 function GetWireType(tm: TTypeMode): TWireType;
 begin
   case tm of
@@ -451,44 +385,35 @@ begin
       Result := TWire.LENGTH_DELIMITED;
   end;
 end;
-
 {$Region 'TConst'}
-
 procedure TConst.AsIdent(const Value: string);
 begin
   val := Value;
   typ := TConstType.cIdent;
 end;
-
 procedure TConst.AsInt(const Value: Integer);
 begin
   val := Value;
   typ := TConstType.cInt;
 end;
-
 procedure TConst.AsFloat(const Value: Double);
 begin
   val := Value;
   typ := TConstType.cFloat;
 end;
-
 procedure TConst.AsStr(const Value: string);
 begin
   val := Value;
   typ := TConstType.cStr;
 end;
-
 function TConst.AsBool(const Value: string): Boolean;
 begin
   Result := LowerCase(Value) = 'true';
   typ := TConstType.cBool;
   val := Result;
 end;
-
 {$EndRegion}
-
 {$Region 'TObjDesc'}
-
 class function TObjDesc.GetInstance(cls: TMode): PObj;
 begin
   New(Result);
@@ -496,21 +421,18 @@ begin
   Result.cls := TMode.mUnknown;
   Result.aux := nil;
 end;
-
 function TObjDesc.DelphiName: string;
 begin
   Result := AsCamel(name);
   if Keywords.IndexOf(Result) >= 0 then
     Result := '&' + Result;
 end;
-
 function TObjDesc.AsField: string;
 begin
   Result := 'F' + AsCamel(name);
   if Keywords.IndexOf(Result) >= 0 then
     Result := '&' + Result;
 end;
-
 function TObjDesc.AsType: string;
 begin
   if Typ.form in [TTypeMode.tmUnknown .. TTypeMode.tmSint64] then
@@ -522,7 +444,6 @@ begin
       Result := '&' + Result;
   end;
 end;
-
 procedure TObjDesc.AddOption(const name: string; const val: TConst);
 begin
   if aux = nil then
@@ -539,50 +460,38 @@ begin
     raise Exception.Create('AddOption error');
   aux.Update(name, val);
 end;
-
 {$EndRegion}
-
 {$Region 'TAux'}
-
 constructor TAux.Create(Obj: PObj);
 begin
   inherited Create;
   Self.Obj := Obj;
 end;
-
 procedure TAux.Update(const id: string; const cv: TConst);
 begin
   UpdateOption(LowerCase(id), cv);
 end;
-
 procedure TAux.UpdateOption(const id: string; const cv: TConst);
 begin
   if id = 'comment' then
     comments := cv.val.AsString;
 end;
-
 {$EndRegion}
-
 {$Region 'TMessageOptions'}
-
 constructor TMessageOptions.Create(Obj: PObj);
 begin
   inherited;
   Reserved := TIntSet.Create;
   ReservedFields := TStringList.Create;
 end;
-
 destructor TMessageOptions.Destroy;
 begin
   Reserved.Free;
   ReservedFields.Free;
   inherited;
 end;
-
 {$EndRegion}
-
 {$Region 'TFieldOptions'}
-
 constructor TFieldOptions.Create(Obj, Msg: PObj; Tag: Integer; Rule: TFieldRule);
 begin
   inherited Create(Obj);
@@ -590,18 +499,14 @@ begin
   Self.Tag := Tag;
   Self.Rule := Rule;
 end;
-
 {$EndRegion}
-
 {$Region 'TModule'}
-
 constructor TModule.Create(Obj: PObj; const Name: string; Weak: Boolean);
 begin
   inherited Create(Obj);
   FName := Name;
   FWeak := Weak;
 end;
-
 destructor TModule.Destroy;
 var p, q: PObj;
 begin
@@ -613,16 +518,12 @@ begin
   end;
   inherited;
 end;
-
 function TModule.GetNameSpace: string;
 begin
   Result := 'Example1';
 end;
-
 {$EndRegion}
-
 {$Region 'TpbTable'}
-
 constructor TpbTable.Create;
 var
   i: Integer;
@@ -634,14 +535,12 @@ begin
   TObjDesc.Keywords.Sorted := True;
   InitSystem;
 end;
-
 destructor TpbTable.Destroy;
 begin
   TObjDesc.Keywords.Free;
   // todo: start using memory regions
   inherited;
 end;
-
 procedure TpbTable.InitSystem;
 var
   t: TTypeMode;
@@ -654,7 +553,6 @@ begin
     Enter(TMode.mType, Ord(t), EmbeddedTypes[t], FEmbeddedTypes[t]);
   FGuard.typ := FEmbeddedTypes[TTypeMode.tmUnknown];
 end;
-
 procedure TpbTable.NewObj(var obj: PObj; const id: string; cls: TMode);
 var
   x, n: PObj;
@@ -674,7 +572,6 @@ begin
     parser.SemError(1);
   end;
 end;
-
 procedure TpbTable.CheckUniqueness(f: PObj; messageType: PType);
 var
   x: PObj;
@@ -694,7 +591,6 @@ begin
     x := x.next;
   end;
 end;
-
 procedure TpbTable.Concatenate(var a: PObj);
 var
   x: PObj;
@@ -709,7 +605,6 @@ begin
     x.next := FTopScope.next;
   end;
 end;
-
 procedure TpbTable.NewType(const obj: PObj; form: TTypeMode);
 var
   typ: PType;
@@ -720,10 +615,63 @@ begin
   obj.typ := typ;
 end;
 
+function TpbTable.FindTypeNameInImport(name: string): PObj;
+var
+  x     : PObj;
+  pNext : PObj;
+begin
+    Result := nil;
+    if FModule.FImport = nil then  Exit;
+
+    x := FModule.FImport;  FGuard.name := name;
+    while  true  do
+    begin
+        pNext := x;
+        x := x.dsc;
+        while x.name <> name do
+          x := x.next;
+        if x = FGuard then
+        begin
+            x := pNext.next;
+        end else
+        begin
+            Result := x;
+            Break;
+        end;
+        if x = FGuard then Break;
+    end;
+end;
+
+function TpbTable.FindTypeNameInModule(name: string; mModule: PObj): PObj;
+var
+  x     : PObj;
+  pNext : PObj;
+begin
+    Result := nil;
+    if mModule = nil then  Exit;
+
+    x := mModule.dsc; FGuard.name := name;
+    while  true  do
+    begin
+        pNext := x;
+        while x.name <> name do
+          x := x.next;
+        if x = FGuard then
+        begin
+            x := pNext.next;
+        end else
+        begin
+            Result := x;
+            Break;
+        end;
+        if x = FGuard then Break;
+    end;
+end;
+
 procedure TpbTable.Find(var obj: PObj; const id: string);
 var
   s, x: PObj;
-  pNext : PObj;
+
 begin
   s := FTopScope; FGuard.name := id;
   repeat
@@ -737,42 +685,27 @@ begin
     end;
     if s = FUniverse then
     begin
-      x := FModule.FImport;
-      while  true  do
-      begin
-          pNext := x;
-          x := x.dsc;
-          while x.name <> id do
-            x := x.next;
-
-          if x = FGuard then
-            x := pNext.next
-          else
-           Break;
-
-          if x = FGuard then Break;
-      end;
-      if x = FGuard then
+      x := FindTypeNameInImport(id);
+      if x = nil then
       begin
         var p := TObjDesc.GetInstance(TMode.mType);
         p.cls := TMode.mType;
-        p.name := FGuard.name;
-        p.typ  := FGuard.typ;
-        p.typ^.form := TTypeMode.tmMessage;
-        p.typ^.declaration.cls := p.cls;
-        p.typ^.declaration.name := p.name;
+        p.name := 'fwd';
+
+        NewType(p,TTypeMode.tmMessage);
+        p.typ.declaration.name  := id;
         obj := p;
-        Ffwd_decl.AddOrSetValue(id,@obj);
-        //parser.SemError(2);
+
+        Ffwd_decl.AddOrSetValue(id,obj);
         Exit;
       end;
+      FExtern_decl.AddOrSetValue(id,x);
       obj := x;
       exit;
     end;
     s := s.dsc;
   until false;
 end;
-
 procedure TpbTable.OpenScope;
 var s: PObj;
 begin
@@ -783,12 +716,10 @@ begin
   s.next := FGuard;
   FTopScope := s;
 end;
-
 procedure TpbTable.CloseScope;
 begin
   FTopScope := FTopScope.dsc;
 end;
-
 procedure TpbTable.Enter(cls: TMode; n: Integer; name: string; var typ: PType);
 var
   obj: PObj;
@@ -800,17 +731,14 @@ begin
   obj.next := FTopScope.next;
   FTopScope.next := obj;
 end;
-
 function TpbTable.GetBasisType(kind: TTypeMode): PType;
 begin
   Result := FEmbeddedTypes[kind];
 end;
-
 function TpbTable.GetUnknownType: PType;
 begin
   Result := FEmbeddedTypes[TTypeMode.tmUnknown];
 end;
-
 function TpbTable.FindType(const id: TQualIdent): PType;
 var
   obj: PObj;
@@ -832,7 +760,6 @@ begin
   else
     parser.SemError(6);
 end;
-
 function TpbTable.FindMessageType(id: TQualIdent): PType;
 var
   typ: PType;
@@ -842,13 +769,13 @@ begin
     parser.SemError(5);
   Result := typ;
 end;
-
 procedure TpbTable.OpenProto(const id: string; Weak: Boolean);
 var
   str: TStringList;
   src, stem, filename: string;
 begin
   stem := TPath.GetFilenameWithoutExtension(id);
+
   FModId := stem;
   try
     str := TStringList.Create;
@@ -860,6 +787,7 @@ begin
     end;
     str := TStringList.Create;
     FParser := TpbParser.Create(Self, TpbScanner.Create(src), str);
+
     try
       parser.Parse;
       Writeln(parser.errors.count, ' errors detected');
@@ -881,7 +809,6 @@ begin
     on e: FatalError do Writeln('-- ', e.Message);
   end;
 end;
-
 procedure TpbTable.Import(const id: string; Weak: Boolean);
 const
   // This is a predefined module describing embedded structures and types.
@@ -907,7 +834,6 @@ begin
     FModule := tm; FParser := tp;
   end;
 end;
-
 function TpbTable.ParseInt(const s: string; base: Integer): Integer;
 var
   sign: Integer;
@@ -938,18 +864,13 @@ begin
   until False;
   Result := Result * sign;
 end;
-
 function TpbTable.Dump: string;
 begin
   Result := '';
 end;
-
 function TpbTable.GenScript: string;
 begin
   Result := '';
 end;
-
 {$EndRegion}
-
 end.
-

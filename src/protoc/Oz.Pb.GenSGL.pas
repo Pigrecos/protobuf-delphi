@@ -15,24 +15,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this file. If not, see <https://www.gnu.org/licenses/>.
  *)
-
 unit Oz.Pb.GenSGL;
-
 interface
-
 uses
   System.SysUtils, Oz.Cocor.Utils, Oz.Pb.Tab, Oz.Pb.CustomGen;
-
 {$Region 'TGenSGL: code generator for Oz.SGL.Collections'}
-
 type
-
   TGenSGL = class(TCustomGen)
   protected
     procedure FieldWrite(obj: PObj); override;
     function MapCollection: string; override;
     function RepeatedCollection: string; override;
     function CreateName: string; override;
+    function CreateMapName: string; override;
     procedure GenEntityType(msg: PObj); override;
     procedure GenUses; override;
     procedure GenDecl(Load: Boolean); override;
@@ -48,49 +43,48 @@ type
     procedure GenFieldRead(msg: PObj); override;
     procedure GenSaveImpl(msg: PObj); override;
   end;
-
 {$EndRegion}
-
 implementation
-
 uses
   Oz.Pb.Parser;
-
 {$Region 'TGenSGL'}
-
 function TGenSGL.MapCollection: string;
 begin
   Result := 'TsgHashMap<%s, %s>';
 end;
-
 function TGenSGL.RepeatedCollection: string;
 begin
   Result := 'TsgRecordList<%s>';
 end;
-
 function TGenSGL.CreateName: string;
 begin
   Result := 'From(nil)';
 end;
-
+function TGenSGL.CreateMapName: string;
+begin
+  Result := 'From(0,nil)';
+end;
 procedure TGenSGL.GenEntityType(msg: PObj);
 var
   s: string;
 begin
   s := AsCamel(msg.typ.declaration.name);
-  Wrln('P%s = ^T%s;', [s, s]);
-  Wrln('T%s = record', [s]);
+  if not FImportProcess then
+  begin
+     Wrln('P%s = ^T%s;', [s, s]);
+     Wrln('T%s = record', [s]);
+  end
+  else
+     Wrln('T%s = Class', [s])
 end;
-
 procedure TGenSGL.GenUses;
 var
   x : PObj;
 begin
   Wrln('uses');
-
   if tab.Module.Import <> nil then
   begin
-      Wrln('  System.Classes, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes,');
+      Wrln('  System.Classes, System.Generics.Collections, System.Rtti, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes,');
       x := tab.Module.Import;
       while x <> tab.Guard do
       begin
@@ -104,12 +98,10 @@ begin
   begin
       Wrln('  System.Classes, System.SysUtils, Oz.SGL.Collections, Oz.Pb.Classes;');
   end;
-
   Wrln;
   Wrln('{$T+}');
   Wrln;
 end;
-
 procedure TGenSGL.GenDecl(Load: Boolean);
 begin
   if not Load then
@@ -124,7 +116,6 @@ begin
     Wrln('    Save: TSavePair<Key, Value>; Tag: Integer);');
   end;
 end;
-
 procedure TGenSGL.FieldWrite(obj: PObj);
 var
   fg: TFieldGen;
@@ -134,13 +125,18 @@ begin
   fg.checkNil := False;
   fg.Gen;
 end;
-
 procedure TGenSGL.GenEntityDecl;
 begin
-  Wrln('procedure Init;');
-  Wrln('procedure Free;');
+  if not FImportProcess then
+  begin
+      Wrln('procedure Init;');
+      Wrln('procedure Free;');
+  end else
+  begin
+      Wrln('Constructor Init;');
+      Wrln('destructor Free;');
+  end;
 end;
-
 procedure TGenSGL.GenEntityImpl(msg: PObj);
 var
   typ: PType;
@@ -150,11 +146,18 @@ begin
   typ := msg.typ;
   // parameterless Init;
   t := msg.AsType;
-  Wrln('procedure %s.Init;', [t]);
+  if not FImportProcess then
+    Wrln('procedure %s.Init;', [t])
+  else
+    Wrln('Constructor %s.Init;', [t]);
   Wrln('begin');
   Indent;
   try
-    Wrln('Self := Default(%s);', [t]);
+    if not FImportProcess then
+      Wrln('Self := Default(%s);', [t])
+    else
+      Wrln('inherited Create;');
+
     x := typ.dsc;
     while x <> tab.Guard do
     begin
@@ -166,8 +169,11 @@ begin
   end;
   Wrln('end;');
   Wrln;
+  if not FImportProcess then
+     Wrln('procedure %s.Free;', [t])
+  else
+     Wrln('destructor %s.Free;', [t]);
 
-  Wrln('procedure %s.Free;', [t]);
   Wrln('begin');
   Indent;
   try
@@ -177,22 +183,21 @@ begin
       FieldFree(x);
       x := x.next;
     end;
+    if FImportProcess then
+      Wrln('inherited Destroy;');
   finally
     Dedent;
   end;
 end;
-
 procedure TGenSGL.GenLoadDecl(msg: PObj);
 begin
   Wrln('procedure Load%s(var Value: %s);', [msg.DelphiName, msg.AsType]);
 end;
-
 procedure TGenSGL.GenSaveDecl(msg: PObj);
 begin
   Wrln('class procedure Save%s(const S: TpbSaver; const Value: %s); static;',
     [msg.DelphiName, msg.AsType]);
 end;
-
 procedure TGenSGL.GenLoadMethod(msg: PObj);
 var
   s, t: string;
@@ -201,19 +206,18 @@ begin
   t := msg.AsType;
   Wrln('procedure %s.Load%s(var Value: %s);', [GetBuilderName(True), s, t]);
 end;
-
 function TGenSGL.GenRead(msg: PObj): string;
 begin
   Result := Format('Load%s', [msg.DelphiName]);
 end;
-
 procedure TGenSGL.GenFieldRead(msg: PObj);
 var
   o: TFieldOptions;
   n: string;
-  m: Boolean;
+  m,e: Boolean;
 begin
   m := msg.typ.form = TTypeMode.tmMessage;
+  e := msg.typ.form = TTypeMode.tmEnum;
   if m then
   begin
     Wrln('Pb.Push;');
@@ -221,13 +225,39 @@ begin
     Indent;
   end;
   o := msg.aux as TFieldOptions;
-  n := 'F' + AsCamel(msg.name);
+  if FImportProcess then n := AsCamel(msg.name)
+  else                   n := 'F' + AsCamel(msg.name);
   if o.Rule <> TFieldRule.Repeated then
-    Wrln('%s(Value.%s);', [GetRead(msg), n])
-  else
+  begin
+    if msg.typ.form <> TTypeMode.tmMessage then
+       Wrln('%s(Value.%s);', [GetRead(msg), n])
+    else begin
+        var tType := 'T'+msg.typ.declaration.name;
+        Wrln('var v : %s := Value.%s;', [tType,n]);
+        Wrln('%s(v);', [GetRead(msg)]);
+        Wrln('Value.%s := v;', [n]);
+    end;
+  end else
   begin
     n := Plural(n);
-    Wrln('%s(Value.%s.Add^);', [GetRead(msg), n]);
+    var tType := msg.typ.declaration.name.Replace('float','single');
+    tType := tType.Replace('bytes','TBytes');
+    tType := tType.Replace('bool','boolean');
+    if m  then
+    begin
+        tType := 'T'+ tType;
+        Wrln('var v : %s;', [tType]);
+        Wrln('%s(v);', [GetRead(msg)])
+    end
+    else if e then
+    begin
+        tType := 'T'+ tType;
+        Wrln('var v : %s := %s;', [tType, GetRead(msg)]);
+    end else
+    begin
+        Wrln('var v : %s := %s;', [tType, GetRead(msg)]);
+    end;
+    Wrln('Value.%s.Add(@v);', [n]);
   end;
   if m then
   begin
@@ -237,17 +267,14 @@ begin
     Wrln('end;');
   end;
 end;
-
 procedure TGenSGL.GenInitLoaded;
 begin
   Wrln('Value.Init;');
 end;
-
 procedure TGenSGL.GenLoadImpl;
 begin
   // empty
 end;
-
 procedure TGenSGL.GenSaveProc;
 begin
   Wrln('{ TSaveHelper }');
@@ -307,7 +334,6 @@ begin
   Wrln('end;');
   Wrln;
 end;
-
 procedure TGenSGL.GenSaveImpl(msg: PObj);
 var
   s, t: string;
@@ -317,7 +343,5 @@ begin
   Wrln('class procedure %s.Save%s(const S: TpbSaver; const Value: %s);',
     [GetBuilderName(False), s, t]);
 end;
-
 {$EndRegion}
-
 end.
