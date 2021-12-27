@@ -24,6 +24,7 @@ type
   TGenSGL = class(TCustomGen)
   protected
     procedure FieldWrite(obj: PObj); override;
+    function AddItemMap(obj: PObj): string; override;
     function MapCollection: string; override;
     function RepeatedCollection: string; override;
     function CreateName: string; override;
@@ -48,6 +49,13 @@ implementation
 uses
   Oz.Pb.Parser;
 {$Region 'TGenSGL'}
+function TGenSGL.AddItemMap(obj: PObj): string;
+begin
+    var key := obj.typ.dsc;
+    var value := key.next;
+
+    Result := Format('InsertOrAssign(TsgPair<%s, %s>.From',[key.AsType, value.AsType]);
+end;
 function TGenSGL.MapCollection: string;
 begin
   Result := 'TsgHashMap<%s, %s>';

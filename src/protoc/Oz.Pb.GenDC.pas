@@ -28,6 +28,7 @@ type
 
   TGenDC = class(TCustomGen)
   protected
+    function AddItemMap(obj: PObj): string; override;
     function MapCollection: string; override;
     function RepeatedCollection: string; override;
     function CreateName: string; override;
@@ -55,6 +56,13 @@ uses
 
 {$Region 'TGenDC'}
 
+function TGenDC.AddItemMap(obj: PObj): string;
+begin
+    //var key := obj.typ.dsc;
+    //var value := key.next;
+
+    Result := 'AddOrSetValue';
+end;
 function TGenDC.MapCollection: string;
 begin
   Result := 'TDictionary<%s, %s>';

@@ -439,7 +439,10 @@ begin
     Result := DelphiEmbeddedTypes[Typ.form]
   else
   begin
-    Result := 'T' + AsCamel(typ.declaration.name);
+    if Typ.form = TTypeMode.tmUnion then
+       Result := AsCamel(typ.declaration.name)
+    else
+       Result := 'T' + AsCamel(typ.declaration.name);
     if Keywords.IndexOf(Result) >= 0 then
       Result := '&' + Result;
   end;

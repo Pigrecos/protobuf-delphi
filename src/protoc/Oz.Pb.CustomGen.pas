@@ -25,6 +25,7 @@ type
   TCustomGen = class(TGen)
   protected
     FImportProcess : Boolean;
+    FUnionProcess  : Boolean;
     sb: TStringBuilder;
     IndentLevel: Integer;
     maps: TMapTypes;
@@ -60,7 +61,7 @@ type
     // Free field
     procedure FieldFree(obj: PObj);
     // Get read statement
-    function GetRead(obj: PObj): string;
+    function GetRead(obj: PObj;isUnion:Boolean=False): string;
     // Field read from buffer
     procedure FieldRead(obj: PObj);
     // Write field to buffer
@@ -69,6 +70,8 @@ type
     procedure FieldReflection(obj: PObj);
     // unused
     procedure GenComment(const comment: string);
+    // Get Union Field
+    function GetWriteUnion(obj: PObj): string;
     // Message code
     function GetPair(maptypes: TMapTypes; typ: PType; mas: TGetMap): string;
     procedure MessageDecl(msg: PObj);
@@ -86,6 +89,7 @@ type
     function GetBuilderName(Load: Boolean): string;
     // abstract
     function RepeatedCollection: string; virtual; abstract;
+    function AddItemMap(obj: PObj): string; virtual; abstract;
     function MapCollection: string; virtual; abstract;
     function CreateName: string; virtual; abstract;
     function CreateMapName: string; virtual; abstract;
@@ -139,6 +143,7 @@ constructor TCustomGen.Create(Parser: TBaseParser);
 begin
   inherited;
   FImportProcess := False;
+  FUnionProcess  := False;
   sb := TStringBuilder.Create;
   maps := TList<PType>.Create;
   mapvars := TList<PType>.Create;
@@ -394,161 +399,249 @@ begin
       end;
   end;
 end;
+
 procedure TCustomGen.LoadImpl(msg: PObj);
 var
   x: PObj;
   typ: PType;
   s, t: string;
+
   procedure ReadUnion(x: PObj);
   var
     o: TFieldOptions;
     w, f, tag: string;
   begin
-    if x = nil then exit;
-    Indent;
-    while x <> tab.Guard do
-    begin
-      o := x.aux as TFieldOptions;
-      w := TWire.Names[GetWireType(x.typ.form)];
-      f := o.Msg.name;
-      tag := t + '.' + FieldTag(x);
-      Wrln('%s:', [tag]);
+      if x = nil then exit;
       Indent;
-      Wrln('begin');
-      Wrln('  Assert(wireType = TWire.%s);', [w]);
-      Wrln('  var v : %s;', ['TpbOneof']);
-      Wrln('  v.tag := %s;', [tag]);
-      Wrln('  v.value := %s;', [GetRead(x)]);
+      while x <> tab.Guard do
+      begin
+          o := x.aux as TFieldOptions;
+          w := TWire.Names[GetWireType(x.typ.form)];
+          f := o.Msg.name;
+          tag := t + '.' + FieldTag(x);
+          Wrln('%s:', [tag]);
+          Indent;
+          Wrln('begin');
+          Wrln('  Assert(wireType = TWire.%s);', [w]);
+          Wrln('  var v : %s;', ['TpbOneof']);
+          Wrln('  v.tag := %s;', [tag]);
+          Wrln('  v.value := %s;', [GetRead(x,True)]);
 
-      Wrln('  %s.value := v;', [f]);
-      Wrln('end;');
+          Wrln('  %s.value := v;', [f]);
+          Wrln('end;');
+          Dedent;
+          x := x.next;
+      end;
       Dedent;
-      x := x.next;
-    end;
-    Dedent;
   end;
+
 begin
-  // generate nested messages
-  x := msg.dsc;
-  while x <> nil do
-  begin
-    if x.cls = TMode.mType then
-      if x.typ.form = TTypeMode.tmMessage then
-        LoadImpl(x);
-    x := x.next;
-  end;
-  typ := msg.typ;
-  if msg.cls <> TMode.mType then exit;
-  if typ.form <> TTypeMode.tmMessage then exit;
-  s := msg.DelphiName;
-  t := msg.AsType;
-  GenLoadMethod(msg);
-  Wrln('var');
-  Wrln('  fieldNumber, wireType: integer;');
-  Wrln('  tag: TpbTag;');
-  Wrln('begin');
-  Indent;
-  GenInitLoaded;
-  Wrln('tag := Pb.readTag;');
-  Wrln('while tag.v <> 0 do');
-  Wrln('begin');
-  Indent;
-  Wrln('wireType := tag.WireType;');
-  Wrln('fieldNumber := tag.FieldNumber;');
-  x := typ.dsc;
-  if x = tab.Guard then
-    // empty message
-    Wrln('Pb.skipField(tag);')
-  else
-  begin
-    Wrln('case fieldNumber of');
-    while x <> tab.Guard do
+    // generate nested messages
+    x := msg.dsc;
+    while x <> nil do
     begin
-      if x.typ.form = TTypeMode.tmUnion then
-        ReadUnion(x.typ.dsc)
-      else
-        FieldRead(x);
-      x := x.next;
+        if x.cls = TMode.mType then
+          if x.typ.form = TTypeMode.tmMessage then
+            LoadImpl(x);
+        x := x.next;
     end;
-    Wrln('  else');
-    Wrln('    Pb.skipField(tag);');
+    typ := msg.typ;
+    if msg.cls <> TMode.mType then exit;
+    if typ.form <> TTypeMode.tmMessage then exit;
+    s := msg.DelphiName;
+    t := msg.AsType;
+    GenLoadMethod(msg);
+    Wrln('var');
+    Wrln('  fieldNumber, wireType: integer;');
+    Wrln('  tag: TpbTag;');
+    Wrln('begin');
+    Indent;
+    GenInitLoaded;
+    Wrln('tag := Pb.readTag;');
+    Wrln('while tag.v <> 0 do');
+    Wrln('begin');
+    Indent;
+    Wrln('wireType := tag.WireType;');
+    Wrln('fieldNumber := tag.FieldNumber;');
+    x := typ.dsc;
+    if x = tab.Guard then
+      // empty message
+      Wrln('Pb.skipField(tag);')
+    else
+    begin
+        Wrln('case fieldNumber of');
+        while x <> tab.Guard do
+        begin
+            if x.typ.form = TTypeMode.tmUnion then
+              ReadUnion(x.typ.dsc)
+            else
+              FieldRead(x);
+            x := x.next;
+        end;
+        Wrln('  else');
+        Wrln('    Pb.skipField(tag);');
+        Wrln('end;');
+    end;
+    Wrln('tag := Pb.readTag;');
+    Dedent;
     Wrln('end;');
-  end;
-  Wrln('tag := Pb.readTag;');
-  Dedent;
-  Wrln('end;');
-  Dedent;
-  Wrln('end;');
-  Wrln('');
+    Dedent;
+    Wrln('end;');
+    Wrln('');
 end;
+
+function TCustomGen.GetWriteUnion(obj: PObj): string;
+var
+  msg: PObj;
+  m, n: string;
+  key, value: PObj;
+begin
+  msg := obj.typ.declaration;
+  m := msg.DelphiName;
+  n := obj.DelphiName;
+  case obj.typ.form of
+    TTypeMode.tmMessage:
+      begin
+          Result := GenRead(msg);
+          Wrln('');
+          Indent;
+          Wrln('var v1 : T%s;', [m]);
+          Wrln(result+'(v1);');
+          Dedent;
+          Result := Format('TValue.From<T%s>(v1)', [m]);
+      end;
+    TTypeMode.tmEnum:
+      begin
+          Result := Format('TValue.From<T%s>(T%s(S.Pb.writeInt32))', [m,m])
+      end;
+    TTypeMode.tmMap:
+      begin
+        key := obj.typ.dsc;
+        value := key.next;
+        Result := Format('%s, %s', [GetRead(key), GetRead(value)]);
+      end;
+    TTypeMode.tmBool:
+      Result := 'S.Pb.writeBoolean';
+    TTypeMode.tmInt64, TTypeMode.tmUint64:
+      Result := 'S.Pb.writeInt64';
+    else  begin
+      Result := Format('S.Pb.write%s', [AsCamel(msg.name)]);
+
+      if msg.name = 'bytes' then
+        Result := Format('TValue.From<TBytes>(S.Pb.write%s)', [AsCamel(msg.name)])
+    end;
+  end;
+end;
+
 procedure TCustomGen.SaveImpl(msg: PObj);
 var
   typ: PType;
   x: PObj;
+  t : string;
+
+  procedure WriteUnion(x: PObj);
+  var
+    o: TFieldOptions;
+    f, tag: string;
+  begin
+      if x = nil then exit;
+      FUnionProcess := True;
+      Indent;
+      while x <> tab.Guard do
+      begin
+          o := x.aux as TFieldOptions;
+          f := o.Msg.name;
+          t := msg.AsType;
+          tag := t + '.' + FieldTag(x);
+          Wrln('%s:', [tag]);
+          Indent;
+          Wrln('begin');
+          Indent;
+          FieldWrite(x);
+          Dedent;
+          Wrln('end;');
+          Dedent;
+          x := x.next;
+      end;
+      Dedent;
+      Wrln('end;');
+      FUnionProcess := False;
+  end;
+
   function HasRepeatedVars(x: PObj): Boolean;
   begin
-    while x <> tab.Guard do
-    begin
-      if TFieldOptions(x.aux).Rule = TFieldRule.Repeated then
-        exit(True);
-      x := x.next;
-    end;
-    Result := False;
+      while x <> tab.Guard do
+      begin
+          if TFieldOptions(x.aux).Rule = TFieldRule.Repeated then
+            exit(True);
+          x := x.next;
+      end;
+      Result := False;
   end;
+
   procedure SaveMessage;
   var
     x: PObj;
     typ: PType;
   begin
-    GenSaveImpl(msg);
-    mapvars.Clear;
-    x := msg.dsc;
-    while x <> tab.Guard do
-    begin
-      if x.cls = TMode.mType then
-      begin
-        typ := x.typ;
-        if (typ.form = TTypeMode.tmMap) and (mapvars.IndexOf(typ) < 0) then
-          mapvars.Add(typ);
-      end;
-      x := x.next;
-    end;
-    Wrln('var ');
-    Indent;
-    Wrln('i : Integer;');
-    Dedent;
-    Wrln('');
-
-    Wrln('begin');
-    Indent;
-    try
-      typ := msg.typ;
-      x := typ.dsc;
+      GenSaveImpl(msg);
+      mapvars.Clear;
+      x := msg.dsc;
       while x <> tab.Guard do
       begin
-        FieldWrite(x);
-        x := x.next;
+          if x.cls = TMode.mType then
+          begin
+              typ := x.typ;
+              if (typ.form = TTypeMode.tmMap) and (mapvars.IndexOf(typ) < 0) then
+                mapvars.Add(typ);
+          end;
+          x := x.next;
       end;
-    finally
+      Wrln('var ');
+      Indent;
+      Wrln('i : Integer;');
+      Wrln('h : TpbSaver;');
       Dedent;
-    end;
-    Wrln('end;');
-    Wrln('');
+      Wrln('');
+
+      Wrln('begin');
+      Indent;
+      try
+          typ := msg.typ;
+          x := typ.dsc;
+          while x <> tab.Guard do
+          begin
+              if x.typ.form = TTypeMode.tmUnion then
+              begin
+                 Wrln('case Value.%s.tag of',[x.name]);
+                 WriteUnion(x.typ.dsc) ;
+              end
+              else
+                 FieldWrite(x);
+              x := x.next;
+          end;
+      finally
+        Dedent;
+      end;
+      Wrln('end;');
+      Wrln('');
   end;
+
 begin
-  // generate nested messages
-  x := msg.dsc;
-  while x <> nil {tab.Guard} do
-  begin
-    typ := x.typ;
-    if (x.cls = TMode.mType) and (typ.form = TTypeMode.tmMessage) then
-      SaveImpl(x);
-    x := x.next;
-  end;
-  typ := msg.typ;
-  if (msg.cls = TMode.mType) and (typ.form = TTypeMode.tmMessage) then
-    SaveMessage;
+    // generate nested messages
+    x := msg.dsc;
+    while x <> nil {tab.Guard} do
+    begin
+        typ := x.typ;
+        if (x.cls = TMode.mType) and (typ.form = TTypeMode.tmMessage) then
+          SaveImpl(x);
+        x := x.next;
+    end;
+    typ := msg.typ;
+    if (msg.cls = TMode.mType) and (typ.form = TTypeMode.tmMessage) then
+      SaveMessage;
 end;
+
 procedure TFieldGen.Init(g: TCustomGen; obj: PObj; o: TFieldOptions; const ft: string);
 begin
   Self.g := g;
@@ -605,11 +698,14 @@ begin
   if o.rule <> TFieldRule.Repeated then
   begin
     m := DelphiRwMethods[obj.typ.form];
-    g.Wrln('S.Pb.write%s(%s, Value.%s);', [AsCamel(m), GetTag, n]);
+    if g.FUnionProcess then
+        g.Wrln('S.Pb.write%s(%s, Value.%s.value.AsType<%s>);', [AsCamel(m), GetTag, mn,t])
+    else
+        g.Wrln('S.Pb.write%s(%s, Value.%s);', [AsCamel(m), GetTag, n]);
   end
   else
   begin
-    g.Wrln('S.Init;');
+    g.Wrln('h.Init;');
     g.Wrln('try');
     n := Plural(n);
     if TObjDesc.Keywords.IndexOf(n) >= 0 then
@@ -624,38 +720,41 @@ begin
       TTypeMode.tmBool, TTypeMode.tmEnum:
         begin
             if obj.typ.form = TTypeMode.tmBool then
-               g.Wrln('    S.Pb.writeRawVarint32(Integer(Value.%s%s[i]^));', [FFieldPrefix, n])
+               g.Wrln('    h.Pb.writeRawVarint32(Integer(Value.%s%s[i]^));', [FFieldPrefix, n])
             else
-               g.Wrln('    S.Pb.writeRawVarint32(Value.%s%s[i]^);', [FFieldPrefix, n]);
+               g.Wrln('    h.Pb.writeRawVarint32(Value.%s%s[i]^);', [FFieldPrefix, n]);
         end;
       TTypeMode.tmInt64, TTypeMode.tmUint64, TTypeMode.tmSint64:
-        g.Wrln('    S.Pb.writeRawVarint64(Value.%s%s[i]^);', [FFieldPrefix, n]);
+        g.Wrln('    h.Pb.writeRawVarint64(Value.%s%s[i]^);', [FFieldPrefix, n]);
       TTypeMode.tmFixed64, TTypeMode.tmSfixed64, TTypeMode.tmDouble,
       TTypeMode.tmSfixed32, TTypeMode.tmFixed32, TTypeMode.tmFloat:
-        g.Wrln('    S.Pb.writeRawData(Value.%s%s[i], sizeof(%s));', [FFieldPrefix, n, t]);
+        g.Wrln('    h.Pb.writeRawData(Value.%s%s[i], sizeof(%s));', [FFieldPrefix, n, t]);
       TTypeMode.tmString:
-        g.Wrln('    S.Pb.writeRawString(Value.%s%s[i]^);', [FFieldPrefix, n]);
+        g.Wrln('    h.Pb.writeRawString(Value.%s%s[i]^);', [FFieldPrefix, n]);
       TTypeMode.tmBytes:
-        g.Wrln('    S.Pb.writeRawBytes(Value.%s%s[i]^);', [FFieldPrefix,n]);
+        g.Wrln('    h.Pb.writeRawBytes(Value.%s%s[i]^);', [FFieldPrefix,n]);
     end;
-    g.Wrln('  S.Pb.writeMessage(%s, S.Pb^);', [GetTag]);
+    g.Wrln('  S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
     g.Wrln('finally');
-    g.Wrln('  S.Free;');
+    g.Wrln('  h.Free;');
     g.Wrln('end;');
   end;
 end;
 procedure TFieldGen.GenEnum;
 begin
   if o.rule <> TFieldRule.Repeated then
-    g.Wrln('S.Pb.writeInt32(%s, Ord(Value.%s));', [GetTag, AsCamel(n)])
+    if g.FUnionProcess then
+        g.Wrln('S.Pb.writeInt32(%s, Ord(Value.%s.value.AsType<%s>));', [GetTag, mn,t])
+    else
+        g.Wrln('S.Pb.writeInt32(%s, Ord(Value.%s));', [GetTag, AsCamel(n)])
   else
   begin
     g.Wrln('h.Init;');
     g.Wrln('try');
     n := Plural(n);
-    g.Wrln('  for i := 0 to %s.%s.Count - 1 do', [mn, n]);
-    g.Wrln('    h.Pb.writeRawVarint32(Ord(%s.%s[i]));', [mn, n]);
-    g.Wrln('  Pb.writeMessage(%s, h.Pb^);', [GetTag]);
+    g.Wrln('  for i := 0 to Value.%s.Count - 1 do', [n]);
+    g.Wrln('    h.Pb.writeRawVarint32(Ord(Value.%s[i]));', [n]);
+    g.Wrln('  S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
     g.Wrln('finally');
     g.Wrln('  h.Free;');
     g.Wrln('end;');
@@ -675,7 +774,10 @@ begin
       g.Wrln('if Value.%s%s <> nil then', [FFieldPrefix,n]);
       g.Indent;
     end;
-    g.Wrln('S.SaveObj<%s>(Value.%s%s, Save%s, %s);', [t, FFieldPrefix,n, m, GetTag]);
+    if g.FUnionProcess then
+        g.Wrln('S.SaveObj<%s>(Value.%s.value.AsType<%s>, Save%s, %s);', [t, mn, t, m, GetTag])
+    else
+        g.Wrln('S.SaveObj<%s>(Value.%s%s, Save%s, %s);', [t, FFieldPrefix,n, m, GetTag]);
     if (ft <> '2') and checkNil then
       g.Dedent;
   end
@@ -700,7 +802,7 @@ begin
     g.Wrln('h.Init;');
     g.Wrln('try');
     g.Wrln('  h.Save%s(%s.%s);', [m, mn, n]);
-    s := Format('  Pb.writeMessage(%s, h.Pb^);', [GetTag]);
+    s := Format('  S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
     g.Wrln(s);
     g.Wrln('finally');
     g.Wrln('  h.Free;');
@@ -719,7 +821,7 @@ begin
     g.Wrln('  begin');
     g.Wrln('    h.Clear;');
     g.Wrln('    h.Save%s(Item);', [AsCamel(m)]);
-    g.Wrln('    Pb.writeMessage(%s, h.Pb^);', [GetTag]);
+    g.Wrln('    S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
     g.Wrln('  end;');
     g.Wrln('finally');
     g.Wrln('  h.Free;');
@@ -929,7 +1031,8 @@ begin
   else if obj.typ.form = TTypeMode.tmMap then
     Wrln('%s.Free;', [f])
 end;
-function TCustomGen.GetRead(obj: PObj): string;
+
+function TCustomGen.GetRead(obj: PObj;isUnion:Boolean): string;
 var
   msg: PObj;
   m, n: string;
@@ -940,16 +1043,36 @@ begin
   n := obj.DelphiName;
   case obj.typ.form of
     TTypeMode.tmMessage:
-      Result := GenRead(msg);
+      begin
+         Result := GenRead(msg);
+         if isUnion then
+         begin
+            Wrln('');
+            Indent;
+            Wrln('var v1 : T%s;', [m]);
+            Wrln(result+'(v1);');
+            Dedent;
+            Result := Format('TValue.From<T%s>(v1)', [m]);
+         end;
+      end;
     TTypeMode.tmEnum:
       begin
-        Result := Format('T%s(Pb.readInt32)', [m])
+         Result := Format('T%s(Pb.readInt32)', [m]);
+         if isUnion then
+            Result := Format('TValue.From<T%s>(T%s(Pb.readInt32))', [m,m])
       end;
     TTypeMode.tmMap:
       begin
-        key := obj.typ.dsc;
+        key   := obj.typ.dsc;
         value := key.next;
         Result := Format('%s, %s', [GetRead(key), GetRead(value)]);
+        if value.typ.form =  TTypeMode.tmMessage then
+        begin
+            Wrln('var v1 : T%s;', [value.typ.declaration.name]);
+            Wrln('%s(v1);',[GetRead(value)]);
+            Result := Format('%s, v1', [GetRead(key)]);
+        end;
+
       end;
     TTypeMode.tmBool:
       Result := 'Pb.readBoolean';
@@ -957,6 +1080,10 @@ begin
       Result := 'Pb.readInt64';
     else  begin
       Result := Format('Pb.read%s', [AsCamel(msg.name)]);
+
+      if isUnion then
+        if msg.name = 'bytes' then
+           Result := Format('TValue.From<TBytes>(Pb.read%s)', [AsCamel(msg.name)])
     end;
   end;
 end;
@@ -1036,7 +1163,11 @@ var
   end;
   procedure GenMap;
   begin
-    Wrln('%s.%s.AddOrSetValue(%s);', [o.Msg.name, n, GetRead(obj)]);
+     Wrln('begin');
+     Indent;
+     Wrln('%s.%s.%s(%s));', ['Value', n, AddItemMap(obj),GetRead(obj)]);
+     Dedent;
+     Wrln('end;');
   end;
 begin
   o := obj.aux as TFieldOptions;
