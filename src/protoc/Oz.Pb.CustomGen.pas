@@ -88,6 +88,7 @@ type
     procedure BuilderImpl(Load: Boolean);
     function GetBuilderName(Load: Boolean): string;
     // abstract
+    function TestNil: string; virtual; abstract;
     function RepeatedCollection: string; virtual; abstract;
     function AddItemMap(obj: PObj): string; virtual; abstract;
     function MapCollection: string; virtual; abstract;
@@ -104,7 +105,7 @@ type
     procedure GenSaveProc; virtual; abstract;
     procedure GenInitLoaded; virtual;
     procedure GenLoadMethod(msg: PObj); virtual; abstract;
-    function GenRead(msg: PObj): string; virtual; abstract;
+    function  GenRead(msg: PObj): string; virtual; abstract;
     procedure GenFieldRead(msg: PObj); virtual; abstract;
     procedure GenSaveImpl(msg: PObj); virtual; abstract;
   public
@@ -173,6 +174,8 @@ begin
   Wrln;
   Indent;
 
+  // forword declaration
+  //
   for var Item in tab.fwd_decl do
       Wrln('T'+Item.Key+' = class;');
   Wrln;
@@ -795,13 +798,13 @@ begin
   begin
     if ft <> '2' then
     begin
-      g.Wrln('if Value.F%s <> nil then', [n]);
+      g.Wrln('if Value.F%s%s then', [n,g.TestNil]);
       g.Wrln('begin');
       g.Indent;
     end;
     g.Wrln('h.Init;');
     g.Wrln('try');
-    g.Wrln('  h.Save%s(%s.%s);', [m, mn, n]);
+    g.Wrln('  h.Save%s(Value.%s);', [m, n]);
     s := Format('  S.Pb.writeMessage(%s, h.Pb^);', [GetTag]);
     g.Wrln(s);
     g.Wrln('finally');

@@ -15,19 +15,15 @@
  * You should have received a copy of the GNU General Public License
  * along with this file. If not, see <https://www.gnu.org/licenses/>.
  *)
-
 unit Oz.Pb.GenDC;
-
 interface
-
 uses
   System.SysUtils, Oz.Cocor.Utils, Oz.Pb.Tab, Oz.Pb.CustomGen;
-
 {$Region 'TGenDC: code generator for delphi'}
 type
-
   TGenDC = class(TCustomGen)
   protected
+    function  TestNil: string; override;
     function AddItemMap(obj: PObj): string; override;
     function MapCollection: string; override;
     function RepeatedCollection: string; override;
@@ -46,16 +42,11 @@ type
     procedure GenFieldRead(msg: PObj); override;
     procedure GenSaveImpl(msg: PObj); override;
   end;
-
 {$EndRegion}
-
 implementation
-
 uses
   Oz.Pb.Parser;
-
 {$Region 'TGenDC'}
-
 function TGenDC.AddItemMap(obj: PObj): string;
 begin
     //var key := obj.typ.dsc;
@@ -67,10 +58,13 @@ function TGenDC.MapCollection: string;
 begin
   Result := 'TDictionary<%s, %s>';
 end;
-
 function TGenDC.RepeatedCollection: string;
 begin
   Result := 'TList<%s>';
+end;
+function TGenDC.TestNil: string;
+begin
+    Result :=  ' <> nil'
 end;
 
 procedure TGenDC.GenUses;
@@ -78,7 +72,6 @@ var
   x : PObj;
 begin
   Wrln('uses');
-
   if tab.Module.Import <> nil then
   begin
       Wrln('  System.Classes, System.Generics.Collections, System.Rtti, System.SysUtils, Generics.Collections, Oz.Pb.Classes,');
@@ -96,10 +89,8 @@ begin
       Wrln('  System.Classes, System.SysUtils, Generics.Collections, Oz.Pb.Classes;');
   end;
 
-
   Wrln;
 end;
-
 procedure TGenDC.GenDecl(Load: Boolean);
 begin
   if Load then
@@ -123,18 +114,15 @@ begin
     Wrln('    Save: TSavePair<Key, Value>; Tag: Integer);');
   end;
 end;
-
 function TGenDC.CreateName: string;
 begin
   Result := 'Create';
 end;
-
 procedure TGenDC.GenEntityDecl;
 begin
   Wrln('constructor Create;');
   Wrln('destructor Destroy; override;');
 end;
-
 procedure TGenDC.GenEntityImpl(msg: PObj);
 var
   typ: PType;
@@ -160,7 +148,6 @@ begin
   end;
   Wrln('end;');
   Wrln;
-
   Wrln('destructor %s.Destroy;', [t]);
   Wrln('begin');
   Indent;
@@ -176,12 +163,10 @@ begin
     Dedent;
   end;
 end;
-
 procedure TGenDC.GenEntityType(msg: PObj);
 begin
   Wrln('%s = class', [msg.AsType]);
 end;
-
 procedure TGenDC.GenLoadDecl(msg: PObj);
 var
   t: string;
@@ -189,13 +174,11 @@ begin
   t := msg.AsType;
   Wrln('procedure Load%s(var Value: %s);', [msg.DelphiName, t]);
 end;
-
 procedure TGenDC.GenSaveDecl(msg: PObj);
 begin
   Wrln('class procedure Save%s(const S: TpbSaver; const Value: %s); static;',
     [msg.DelphiName, msg.AsType]);
 end;
-
 procedure TGenDC.GenLoadImpl;
 begin
   Wrln('{ TLoadHelper }');
@@ -226,7 +209,6 @@ begin
   Wrln('end;');
   Wrln;
 end;
-
 procedure TGenDC.GenLoadMethod(msg: PObj);
 var
   s, t: string;
@@ -235,12 +217,10 @@ begin
   t := msg.AsType;
   Wrln('procedure %s.Load%s(var Value: %s);', [GetBuilderName(True), s, t]);
 end;
-
 function TGenDC.GenRead(msg: PObj): string;
 begin
   Result := Format('Load%s(%s.Create)', [msg.DelphiName, msg.AsType]);
 end;
-
 procedure TGenDC.GenFieldRead(msg: PObj);
 var
   o: TFieldOptions;
@@ -254,7 +234,6 @@ begin
   else
     Wrln('LoadList<T%s>(Value.%s, Load%s);', [t, Plural(n), t]);
 end;
-
 procedure TGenDC.GenSaveProc;
 begin
   Wrln('{ TSaveHelper }');
@@ -312,7 +291,6 @@ begin
   Wrln('end;');
   Wrln;
 end;
-
 procedure TGenDC.GenSaveImpl(msg: PObj);
 var
   s, t: string;
@@ -322,7 +300,5 @@ begin
   Wrln('class procedure %s.Save%s(const S: TpbSaver; const Value: %s);',
     [GetBuilderName(False), s, t]);
 end;
-
 {$EndRegion}
-
 end.

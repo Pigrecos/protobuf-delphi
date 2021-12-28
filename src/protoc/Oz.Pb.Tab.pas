@@ -283,8 +283,10 @@ type
     FModId: string;
     // predefined types
     FEmbeddedTypes: array [TEmbeddedTypes] of PType;
+    //
     Ffwd_decl            : TDictionary<string,PObj>;
     FExtern_decl         : TDictionary<string,PObj>;
+    FModuleList          : TDictionary<string,TModule>;
     // Fill predefined elements
     procedure InitSystem;
     function GetUnknownType: PType;
@@ -321,6 +323,8 @@ type
     procedure OpenProto(const id: string; Weak: Boolean);
     // Import module
     procedure Import(const id: string; Weak: Boolean);
+    // Fix recursive import type
+    procedure FixImportRecType;
     // Convert string to Integer
     function ParseInt(const s: string; base: Integer): Integer;
     function Dump: string;
@@ -537,10 +541,13 @@ begin
     TObjDesc.Keywords.Add(DelphiKeywords[i]);
   TObjDesc.Keywords.Sorted := True;
   InitSystem;
+
+  FModuleList := TDictionary<string,TModule>.Create;
 end;
 destructor TpbTable.Destroy;
 begin
   TObjDesc.Keywords.Free;
+  FModuleList.Free;
   // todo: start using memory regions
   inherited;
 end;
@@ -669,6 +676,52 @@ begin
         end;
         if x = FGuard then Break;
     end;
+end;
+
+procedure TpbTable.FixImportRecType;
+var
+  x : PObj;
+  ImportNamelist : TList<String>;
+begin
+  // Fix recursive import type missing
+  //
+
+  x := FModule.FImport;
+  if x = nil then Exit;
+
+  ImportNamelist := TList<String>.Create;
+  try
+    while x <> FGuard do
+    begin
+        ImportNamelist.Add(x.name);
+        x := x.next;
+    end;
+
+    for var item in  ImportNamelist do
+    begin
+        if FModuleList.ContainsKey(item) then
+        begin
+            var ModImp := FModuleList[item] ;
+            x := ModImp.FImport;
+            while x <> FGuard do
+            begin
+                var y: PObj := FModule.FImport;
+                while y.next <> FGuard do
+                  y := y.next;
+
+                if not ImportNamelist.Contains(x.name) then
+                begin
+                    y.next := x;
+                    y.next.next := FGuard;
+                end;
+
+                x := x.next;
+            end;
+        end;
+    end;
+  finally
+    ImportNamelist.Free;
+  end;
 end;
 
 procedure TpbTable.Find(var obj: PObj; const id: string);
@@ -835,6 +888,7 @@ begin
     end;
   finally
     FModule := tm; FParser := tp;
+    FModuleList.AddOrSetValue(tm.Name,tm);
   end;
 end;
 function TpbTable.ParseInt(const s: string; base: Integer): Integer;

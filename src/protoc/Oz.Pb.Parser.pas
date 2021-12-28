@@ -251,6 +251,9 @@ begin
     end;
     x := x.next;
   end;
+
+  tab.FixImportRecType;
+
 end;
 procedure TpbParser._Syntax(var obj: PObj);
 var

@@ -23,6 +23,7 @@ uses
 type
   TGenSGL = class(TCustomGen)
   protected
+    function  TestNil: string; override;
     procedure FieldWrite(obj: PObj); override;
     function AddItemMap(obj: PObj): string; override;
     function MapCollection: string; override;
@@ -64,6 +65,11 @@ function TGenSGL.RepeatedCollection: string;
 begin
   Result := 'TsgRecordList<%s>';
 end;
+function TGenSGL.TestNil: string;
+begin
+    Result := '.Count > 0'
+end;
+
 function TGenSGL.CreateName: string;
 begin
   Result := 'From(nil)';
@@ -89,6 +95,8 @@ procedure TGenSGL.GenUses;
 var
   x : PObj;
 begin
+
+
   Wrln('uses');
   if tab.Module.Import <> nil then
   begin
@@ -224,6 +232,7 @@ var
   n: string;
   m,e: Boolean;
 begin
+
   m := msg.typ.form = TTypeMode.tmMessage;
   e := msg.typ.form = TTypeMode.tmEnum;
   if m then
